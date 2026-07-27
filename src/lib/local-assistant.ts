@@ -250,6 +250,19 @@ function isShortConversationalPhrase(text: string, phrases: string[]) {
   );
 }
 
+function isGreetingPhrase(text: string) {
+  if (isShortConversationalPhrase(text, GREETING_PHRASES)) return true;
+
+  const withoutAssistantName = text.replace(/\b(fin|heyfin)\b/g, "").replace(/\s+/g, " ").trim();
+  const parts = withoutAssistantName.split(" ").filter(Boolean);
+  if (parts.length > 4) return false;
+
+  const greetingPattern =
+    /^(?:(?:oi|ola|opa|e ai|eae|fala|salve)\s+)?(?:bom dia|boa tarde|boa noite)$/;
+
+  return greetingPattern.test(withoutAssistantName);
+}
+
 function hasFinancialSignal(text: string, amount: number | null) {
   return (
     amount != null ||
@@ -284,16 +297,16 @@ function answerSmallTalk(text: string, amount: number | null) {
   const compact = compactMessage(text);
   if (!compact || hasFinancialSignal(compact, amount)) return null;
 
-  if (isShortConversationalPhrase(compact, GREETING_PHRASES)) {
+  if (isGreetingPhrase(compact)) {
     if (compact.startsWith("bom dia")) {
       return "Bom dia! Estou por aqui para te ajudar a registrar gastos, receitas e acompanhar seu saldo com clareza.";
     }
 
-    if (compact.startsWith("boa tarde")) {
+    if (compact.includes("boa tarde")) {
       return "Boa tarde! Pode me contar um gasto, uma receita ou perguntar como estão suas finanças.";
     }
 
-    if (compact.startsWith("boa noite")) {
+    if (compact.includes("boa noite")) {
       return "Boa noite! Quando quiser, posso registrar seus lançamentos ou consultar seu saldo para você.";
     }
 
