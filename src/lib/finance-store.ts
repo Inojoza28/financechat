@@ -735,7 +735,7 @@ export const formatBRL = (value: number) =>
 export function buildCSV(state: FinanceState) {
   const s = summarize(state);
   const rows: string[][] = [
-    ["Finance Chat - Relatório financeiro"],
+    ["HeyFin - Relatório financeiro"],
     ["Gerado em", new Date().toLocaleString("pt-BR")],
     [],
     ["Renda", incomeLabel(state.income)],

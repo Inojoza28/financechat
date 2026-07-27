@@ -1,6 +1,6 @@
 {
-  "name": "Finance Chat",
-  "short_name": "Finance Chat",
+  "name": "HeyFin",
+  "short_name": "HeyFin",
   "description": "Controle financeiro pessoal por conversa.",
   "start_url": "/",
   "display": "standalone",

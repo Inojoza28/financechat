@@ -40,12 +40,12 @@ export function AppNav({ title }: { title?: string }) {
         <div className="flex min-w-0 items-center gap-2.5">
           <img
             src={logo}
-            alt="Finance Chat"
+            alt="HeyFin chat"
             width={512}
             height={512}
             className="size-7 drop-shadow-sm"
           />
-          <span className="truncate text-[15px] font-semibold">{title ?? "Finance Chat"}</span>
+          <span className="truncate text-[15px] font-semibold">{title ?? "HeyFin"}</span>
         </div>
         <nav className="flex items-center gap-1 rounded-full border border-border/40 bg-secondary/65 p-1">
           {links.map(({ to, label, icon: Icon }) => {

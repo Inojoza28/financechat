@@ -1,4 +1,4 @@
-# Finance Chat
+# HeyFin
 
 Aplicacao local para organizar financas pessoais por conversa.
 

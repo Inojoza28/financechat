@@ -4,9 +4,9 @@ import { DashboardPage } from "@/routes/dashboard";
 import { SettingsPage } from "@/routes/settings";
 
 const titles: Record<string, string> = {
-  "/": "Finance Chat",
-  "/dashboard": "Dashboard financeiro - Finance Chat",
-  "/settings": "Ajustes - Finance Chat",
+  "/": "HeyFin",
+  "/dashboard": "Dashboard financeiro - HeyFin",
+  "/settings": "Ajustes - HeyFin",
 };
 
 function normalizePath(pathname: string) {
@@ -34,7 +34,7 @@ export function App() {
   const pathname = usePathname();
 
   useEffect(() => {
-    document.title = titles[pathname] ?? "Finance Chat";
+    document.title = titles[pathname] ?? "HeyFin";
     const canonicalUrl = `${window.location.origin}${pathname}`;
     let canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
     if (!canonical) {
