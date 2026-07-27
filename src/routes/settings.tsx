@@ -184,7 +184,7 @@ function SettingsContent() {
         title="Seu assistente"
         description="Escolha o nome que aparece nas conversas e nos atalhos do chat."
       >
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
           <div className="min-w-[200px] flex-1">
             <Label htmlFor="assistant" className="text-[13px]">
               Nome
@@ -197,7 +197,7 @@ function SettingsContent() {
               className="mt-1.5 rounded-xl"
             />
           </div>
-          <Button onClick={saveName} className="rounded-xl">
+          <Button onClick={saveName} className="w-full rounded-xl sm:w-auto">
             Salvar
           </Button>
         </div>
@@ -222,18 +222,22 @@ function SettingsContent() {
               className="mt-1.5 rounded-xl"
             />
           </div>
-          <Button onClick={saveSpendingLimit} className="rounded-xl">
+          <Button onClick={saveSpendingLimit} className="w-full rounded-xl sm:w-auto">
             Salvar limite
           </Button>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Button variant="outline" className="rounded-xl" onClick={useSuggestedLimit}>
+        <div className="mt-3 grid gap-2 sm:grid-cols-[auto_auto_1fr] sm:items-center">
+          <Button
+            variant="outline"
+            className="w-full rounded-xl sm:w-auto"
+            onClick={useSuggestedLimit}
+          >
             Usar 80% da renda
           </Button>
           {state.spendingLimit && (
             <Button
               variant="ghost"
-              className="rounded-xl"
+              className="w-full rounded-xl sm:w-auto"
               onClick={() => {
                 setSpendingLimit("");
                 financeActions.setSpendingLimit(null);
@@ -243,7 +247,7 @@ function SettingsContent() {
               Remover limite
             </Button>
           )}
-          <span className="text-[13px] text-muted-foreground">
+          <span className="text-center text-[13px] text-muted-foreground sm:text-left">
             Atual: {state.spendingLimit ? formatBRL(state.spendingLimit) : "nao definido"}
           </span>
         </div>
@@ -379,13 +383,13 @@ function SettingsContent() {
           </div>
         )}
 
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button onClick={saveIncome} className="rounded-xl">
+        <div className="mt-4 grid gap-2 sm:grid-cols-[auto_1fr] sm:items-center">
+          <Button onClick={saveIncome} className="w-full rounded-xl sm:w-auto">
             <CalendarDays className="size-4" />
             Salvar renda
           </Button>
           {state.income && (
-            <span className="text-[13px] text-muted-foreground">
+            <span className="text-center text-[13px] text-muted-foreground sm:text-left">
               Atual: {incomeLabel(state.income)}
             </span>
           )}
@@ -397,14 +401,22 @@ function SettingsContent() {
         title="Exportar relatorio"
         description="Baixe receitas, despesas, saldos e resumos em um arquivo completo."
       >
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" className="rounded-xl" onClick={() => exportData("csv")}>
+        <div className="grid gap-2 sm:grid-cols-[auto_auto_1fr] sm:items-center">
+          <Button
+            variant="outline"
+            className="w-full rounded-xl sm:w-auto"
+            onClick={() => exportData("csv")}
+          >
             <FileSpreadsheet className="size-4" /> Planilha
           </Button>
-          <Button variant="outline" className="rounded-xl" onClick={() => exportData("txt")}>
+          <Button
+            variant="outline"
+            className="w-full rounded-xl sm:w-auto"
+            onClick={() => exportData("txt")}
+          >
             <FileText className="size-4" /> Texto
           </Button>
-          <span className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+          <span className="flex items-center justify-center gap-1.5 text-center text-[12px] text-muted-foreground sm:justify-start sm:text-left">
             {state.expenses.length} despesas e {state.revenues.length} receitas extras registradas
           </span>
         </div>
@@ -415,10 +427,10 @@ function SettingsContent() {
         title="Dados"
         description="Tudo fica salvo apenas neste navegador. Acoes de limpeza pedem confirmacao antes de continuar."
       >
-        <div className="flex flex-wrap gap-2">
+        <div className="grid gap-2 sm:grid-cols-2">
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="outline" className="rounded-xl">
+              <Button variant="outline" className="w-full rounded-xl">
                 <RotateCcw className="size-4" /> Limpar conversa
               </Button>
             </AlertDialogTrigger>
@@ -430,9 +442,10 @@ function SettingsContent() {
                   salvas.
                 </AlertDialogDescription>
               </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogFooter className="gap-2 sm:space-x-0">
+                <AlertDialogCancel className="mt-0 rounded-xl">Cancelar</AlertDialogCancel>
                 <AlertDialogAction
+                  className="rounded-xl"
                   onClick={() => {
                     financeActions.resetConversation();
                     toast.success("Conversa limpa.");
@@ -446,7 +459,7 @@ function SettingsContent() {
 
           <AlertDialog>
             <AlertDialogTrigger asChild>
-              <Button variant="destructive" className="rounded-xl">
+              <Button variant="destructive" className="w-full rounded-xl">
                 <Trash2 className="size-4" /> Apagar todos os dados
               </Button>
             </AlertDialogTrigger>
@@ -457,10 +470,10 @@ function SettingsContent() {
                   Essa acao apaga renda, despesas e conversas deste navegador. Nao da para desfazer.
                 </AlertDialogDescription>
               </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogFooter className="gap-2 sm:space-x-0">
+                <AlertDialogCancel className="mt-0 rounded-xl">Cancelar</AlertDialogCancel>
                 <AlertDialogAction
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   onClick={() => {
                     financeActions.resetAll();
                     toast.success("Tudo apagado.");
