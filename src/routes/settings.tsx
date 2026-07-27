@@ -126,7 +126,7 @@ function SettingsContent() {
 
     const value = moneyFromInput(amount);
     if (!Number.isFinite(value) || value <= 0) {
-      toast.error("Informe um valor de renda valido.");
+      toast.error("Informe um valor de renda válido.");
       return;
     }
     financeActions.setIncome(value, period, {
@@ -140,7 +140,7 @@ function SettingsContent() {
   const saveSpendingLimit = () => {
     const value = moneyFromInput(spendingLimit);
     if (!Number.isFinite(value) || value <= 0) {
-      toast.error("Informe um limite de gastos valido.");
+      toast.error("Informe um limite de gastos válido.");
       return;
     }
 
@@ -150,7 +150,7 @@ function SettingsContent() {
 
   const useSuggestedLimit = () => {
     if (suggestedLimit <= 0) {
-      toast.error("Cadastre sua renda antes de usar a sugestao automatica.");
+      toast.error("Cadastre sua renda antes de usar a sugestão automática.");
       return;
     }
 
@@ -167,7 +167,7 @@ function SettingsContent() {
     } else {
       downloadFile(`finance-chat-${stamp}.txt`, buildTXT(s), "text/plain");
     }
-    toast.success("Relatorio gerado.");
+    toast.success("Relatório gerado.");
   };
 
   return (
@@ -206,12 +206,12 @@ function SettingsContent() {
       <Section
         icon={Gauge}
         title="Limite de gastos"
-        description="Defina um teto para o periodo. O app acompanha o consumo e avisa quando voce se aproxima do limite."
+        description="Defina um teto para o período. O app acompanha o consumo e avisa quando você se aproxima do limite."
       >
         <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
           <div>
             <Label htmlFor="spending-limit" className="text-[13px]">
-              Valor maximo por periodo
+              Valor máximo por período
             </Label>
             <Input
               id="spending-limit"
@@ -248,7 +248,7 @@ function SettingsContent() {
             </Button>
           )}
           <span className="text-center text-[13px] text-muted-foreground sm:text-left">
-            Atual: {state.spendingLimit ? formatBRL(state.spendingLimit) : "nao definido"}
+            Atual: {state.spendingLimit ? formatBRL(state.spendingLimit) : "não definido"}
           </span>
         </div>
       </Section>
@@ -398,7 +398,7 @@ function SettingsContent() {
 
       <Section
         icon={Download}
-        title="Exportar relatorio"
+        title="Exportar relatório"
         description="Baixe receitas, despesas, saldos e resumos em um arquivo completo."
       >
         <div className="grid gap-2 sm:grid-cols-[auto_auto_1fr] sm:items-center">
@@ -425,7 +425,7 @@ function SettingsContent() {
       <Section
         icon={ShieldAlert}
         title="Dados"
-        description="Tudo fica salvo apenas neste navegador. Acoes de limpeza pedem confirmacao antes de continuar."
+        description="Tudo fica salvo apenas neste navegador. Ações de limpeza pedem confirmação antes de continuar."
       >
         <div className="grid gap-2 sm:grid-cols-2">
           <AlertDialog>
@@ -438,7 +438,7 @@ function SettingsContent() {
               <AlertDialogHeader>
                 <AlertDialogTitle>Limpar conversa atual?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Essa acao remove apenas as mensagens do mes atual. Renda e despesas continuam
+                  Essa ação remove apenas as mensagens do mês atual. Renda e despesas continuam
                   salvas.
                 </AlertDialogDescription>
               </AlertDialogHeader>
@@ -467,7 +467,7 @@ function SettingsContent() {
               <AlertDialogHeader>
                 <AlertDialogTitle>Apagar todos os dados?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  Essa acao apaga renda, despesas e conversas deste navegador. Nao da para desfazer.
+                  Essa ação apaga renda, despesas e conversas deste navegador. Não dá para desfazer.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter className="gap-2 sm:space-x-0">

@@ -167,7 +167,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
           value={selectedMonth}
           onChange={(event) => setSelectedMonth(event.target.value)}
           className="h-9 rounded-full border border-border/70 bg-surface px-3 text-[13px] font-medium shadow-soft outline-none transition-colors hover:border-primary/30 focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring/20"
-          aria-label="Filtrar dashboard por competencia"
+          aria-label="Filtrar dashboard por competência"
         >
           {monthOptions.map((month) => (
             <option key={month} value={month}>
@@ -219,7 +219,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
               <p className="text-[13px] font-medium text-muted-foreground">Consumo do limite</p>
               <p className="mt-1 text-[13px] text-muted-foreground">
                 {s.limitStatus === "exceeded"
-                  ? `Voce passou ${formatBRL(Math.abs(s.limitRemaining ?? 0))} do limite definido.`
+                  ? `Você passou ${formatBRL(Math.abs(s.limitRemaining ?? 0))} do limite definido.`
                   : `Ainda restam ${formatBRL(Math.max(0, s.limitRemaining ?? 0))} dentro do teto.`}
               </p>
             </div>
