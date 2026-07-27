@@ -172,24 +172,30 @@ export function ChatWindow() {
       </div>
 
       <Conversation className="min-h-0 flex-1">
-        <ConversationContent className="mx-auto w-full max-w-3xl gap-5 px-4 pt-5 pb-2">
+        <ConversationContent className="mx-auto min-h-full w-full max-w-3xl gap-5 px-4 pt-3 pb-2 sm:pt-5">
           {messages.length === 0 ? (
-            <div className="animate-fade-in flex flex-col items-center justify-center px-2 py-12 text-center">
-              <img src={logo} alt="" width={512} height={512} className="size-14 drop-shadow-sm" />
-              <h1 className="mt-5 text-[25px] font-semibold tracking-tight">
+            <div className="animate-fade-in flex min-h-full flex-1 flex-col items-center justify-center px-2 py-4 text-center sm:py-12">
+              <img
+                src={logo}
+                alt=""
+                width={512}
+                height={512}
+                className="size-14 drop-shadow-sm"
+              />
+              <h1 className="mt-3 text-[22px] font-semibold tracking-tight sm:mt-5 sm:text-[25px]">
                 Olá, sou o {state.assistantName}.
               </h1>
-              <p className="mt-2 max-w-sm text-[15px] leading-relaxed text-muted-foreground">
+              <p className="mt-1.5 max-w-[20rem] text-[14px] leading-snug text-muted-foreground sm:mt-2 sm:max-w-sm sm:text-[15px] sm:leading-relaxed">
                 Conte o que você ganhou ou gastou, do jeito que falaria com um amigo. Eu organizo o
                 resto.
               </p>
-              <div className="mt-7 flex w-full max-w-md flex-wrap justify-center gap-2">
+              <div className="mt-4 flex w-full max-w-[22rem] flex-wrap justify-center gap-1.5 sm:mt-7 sm:max-w-md sm:gap-2">
                 {SUGGESTIONS.map((suggestion) => (
                   <button
                     key={suggestion}
                     type="button"
                     onClick={() => send(suggestion)}
-                    className="rounded-full border border-border/70 bg-surface/90 px-3.5 py-2 text-[13px] text-muted-foreground shadow-soft transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 hover:text-foreground"
+                    className="rounded-full border border-border/70 bg-surface/90 px-3 py-1.5 text-[12.5px] text-muted-foreground shadow-soft transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 hover:text-foreground sm:px-3.5 sm:py-2 sm:text-[13px]"
                   >
                     {suggestion}
                   </button>

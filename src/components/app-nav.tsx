@@ -41,8 +41,8 @@ export function AppNav({ title }: { title?: string }) {
           <img
             src={logo}
             alt="HeyFin chat"
-            width={512}
-            height={512}
+            width={380}
+            height={298}
             className="size-7 drop-shadow-sm"
           />
           <span className="truncate text-[15px] font-semibold">{title ?? "HeyFin"}</span>
