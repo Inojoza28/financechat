@@ -1,5 +1,6 @@
 ﻿import type { UIMessage } from "ai";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ArrowRight } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -57,7 +58,6 @@ export function ChatWindow() {
   const [messages, setMessages] = useState<UIMessage[]>(
     () => getFinanceState().messagesByMonth[currentMonthKey()] ?? [],
   );
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const monthOptions = useMemo(() => chatMonthKeys(state), [state]);
 
   useEffect(() => {
@@ -67,14 +67,6 @@ export function ChatWindow() {
   useEffect(() => {
     financeActions.setMessagesForMonth(selectedMonth, messages);
   }, [messages, selectedMonth]);
-
-  useEffect(() => {
-    if (status === "ready") textareaRef.current?.focus();
-  }, [status]);
-
-  useEffect(() => {
-    textareaRef.current?.focus();
-  }, []);
 
   const busy = status === "submitted";
   const summary = summarize(state, selectedMonth);
@@ -209,7 +201,6 @@ export function ChatWindow() {
             onSubmit={() => send(input)}
           >
             <PromptInputTextarea
-              ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={`Fale com o ${state.assistantName}...`}
@@ -220,7 +211,9 @@ export function ChatWindow() {
                 status={status}
                 disabled={!input.trim() && !busy}
                 className="rounded-full"
-              />
+              >
+                {status === "ready" ? <ArrowRight className="size-4" /> : undefined}
+              </PromptInputSubmit>
             </PromptInputFooter>
           </PromptInput>
         </div>
