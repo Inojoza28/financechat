@@ -773,7 +773,7 @@ export function buildCSV(state: FinanceState) {
 export function buildTXT(state: FinanceState) {
   const s = summarize(state);
   const lines = [
-    "FINANCE CHAT - RELATÓRIO FINANCEIRO",
+    "HeyFin - RELATÓRIO FINANCEIRO",
     `Gerado em: ${new Date().toLocaleString("pt-BR")}`,
     "",
     "RESUMO",
