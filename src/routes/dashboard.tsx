@@ -75,10 +75,12 @@ function Stat({
   accent?: "positive" | "negative";
 }) {
   return (
-    <div className="animate-rise rounded-[18px] border border-border/55 bg-surface p-5 shadow-soft">
-      <p className="text-[13px] font-medium text-muted-foreground">{label}</p>
+    <div className="animate-rise flex min-h-[138px] flex-col rounded-[18px] border border-border/55 bg-surface p-4 shadow-soft sm:min-h-[150px] sm:p-5">
+      <p className="text-[12.5px] font-medium leading-snug text-muted-foreground sm:text-[13px]">
+        {label}
+      </p>
       <p
-        className={`mt-1.5 text-2xl font-semibold tracking-tight tabular-nums ${
+        className={`mt-2 break-words text-[clamp(1.45rem,6.7vw,2rem)] font-semibold leading-[1.08] tracking-tight tabular-nums sm:text-2xl ${
           accent === "positive"
             ? "text-success"
             : accent === "negative"
@@ -88,7 +90,11 @@ function Stat({
       >
         {value}
       </p>
-      {hint && <p className="mt-1 text-[12px] text-muted-foreground">{hint}</p>}
+      {hint && (
+        <p className="mt-auto pt-2 text-[12px] leading-snug text-muted-foreground sm:text-[12.5px]">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
@@ -177,11 +183,11 @@ function DashboardContent({ state }: { state: FinanceState }) {
         </select>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
         <Stat
           label="Renda recorrente"
           value={formatBRL(budgetIncome)}
-          hint={state.income ? incomeLabel(state.income) : "ainda não cadastrada"}
+          hint={state.income ? incomeLabel(state.income) : "Ainda não cadastrada"}
         />
         <Stat
           label="Receitas extras"
@@ -201,14 +207,14 @@ function DashboardContent({ state }: { state: FinanceState }) {
           hint={
             s.spendingLimit
               ? `${s.limitUsedPercent}% usado · ${formatBRL(Math.max(0, s.limitRemaining ?? 0))} livres`
-              : `sugestão: ${formatBRL(s.recommendedSpendingLimit)}`
+              : `Sugestão: ${formatBRL(s.recommendedSpendingLimit)}`
           }
           accent={s.limitStatus === "exceeded" ? "negative" : undefined}
         />
         <Stat
           label="Projeção do mês"
           value={formatBRL(s.projection)}
-          hint={`média de ${formatBRL(s.dailyAverage)}/dia`}
+          hint={`Média: ${formatBRL(s.dailyAverage)}/dia`}
         />
       </div>
 
