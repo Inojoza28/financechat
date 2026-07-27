@@ -31,6 +31,25 @@ export type Expense = {
   createdAt: string;
 };
 
+export type FixedExpense = {
+  id: string;
+  description: string;
+  amount: number;
+  category: string;
+  payday: number;
+  startsAtMonth: string;
+  createdAt: string;
+};
+
+export type FixedExpenseOccurrence = {
+  id: string;
+  fixedExpenseId: string;
+  description: string;
+  amount: number;
+  category: string;
+  date: string;
+};
+
 export type Revenue = {
   id: string;
   description: string;
@@ -53,6 +72,7 @@ export type FinanceState = {
   spendingLimit: number | null;
   pendingAction: PendingAssistantAction | null;
   expenses: Expense[];
+  fixedExpenses: FixedExpense[];
   revenues: Revenue[];
   messages: UIMessage[];
   messagesByMonth: Record<string, UIMessage[]>;
@@ -79,6 +99,7 @@ const initialState: FinanceState = {
   spendingLimit: null,
   pendingAction: null,
   expenses: [],
+  fixedExpenses: [],
   revenues: [],
   messages: [],
   messagesByMonth: {},
@@ -132,6 +153,16 @@ function read(): FinanceState {
       ...expense,
       category: normalizeCategory(expense.category),
     }));
+    const fixedExpenses = (parsed.fixedExpenses ?? []).map((expense) => ({
+      ...expense,
+      amount: normalizeMoney(expense.amount),
+      category: normalizeCategory(expense.category),
+      payday: clampPayday(expense.payday, 1),
+      startsAtMonth: isValidMonthKey(expense.startsAtMonth)
+        ? expense.startsAtMonth
+        : monthKey(expense.createdAt?.slice(0, 10) || localISODate()),
+      description: expense.description?.trim() || "Despesa fixa",
+    }));
     const revenues = (parsed.revenues ?? []).map((revenue) => ({
       ...revenue,
       amount: normalizeMoney(revenue.amount),
@@ -167,6 +198,7 @@ function read(): FinanceState {
       income,
       spendingLimit,
       expenses,
+      fixedExpenses,
       revenues,
       messagesByMonth,
     };
@@ -299,6 +331,26 @@ export const financeActions = {
     write({ ...s, expenses: [...s.expenses, expense] });
     return expense;
   },
+  addFixedExpense(input: {
+    description: string;
+    amount: number;
+    category?: string;
+    payday: number;
+    startsAtMonth?: string;
+  }): FixedExpense {
+    const fixedExpense: FixedExpense = {
+      id: uid(),
+      description: input.description.trim().slice(0, 120) || "Despesa fixa",
+      amount: normalizeMoney(input.amount),
+      category: normalizeCategory(input.category?.trim()),
+      payday: clampPayday(input.payday, 1),
+      startsAtMonth: isValidMonthKey(input.startsAtMonth) ? input.startsAtMonth! : currentMonthKey(),
+      createdAt: new Date().toISOString(),
+    };
+    const s = getFinanceState();
+    write({ ...s, fixedExpenses: [...s.fixedExpenses, fixedExpense] });
+    return fixedExpense;
+  },
   addRevenue(input: { description: string; amount: number; date?: string | null }): Revenue {
     const revenue: Revenue = {
       id: uid(),
@@ -319,6 +371,31 @@ export const financeActions = {
       pendingAction: s.pendingAction?.expenseId === id ? null : s.pendingAction,
     });
   },
+  updateFixedExpense(id: string, patch: Partial<Omit<FixedExpense, "id" | "createdAt">>) {
+    const s = getFinanceState();
+    write({
+      ...s,
+      fixedExpenses: s.fixedExpenses.map((expense) =>
+        expense.id === id
+          ? {
+              ...expense,
+              ...patch,
+              amount: patch.amount != null ? normalizeMoney(patch.amount) : expense.amount,
+              category: patch.category != null ? normalizeCategory(patch.category) : expense.category,
+              payday: patch.payday != null ? clampPayday(patch.payday, expense.payday) : expense.payday,
+              description:
+                patch.description != null
+                  ? patch.description.trim().slice(0, 120) || "Despesa fixa"
+                  : expense.description,
+              startsAtMonth:
+                patch.startsAtMonth != null && isValidMonthKey(patch.startsAtMonth)
+                  ? patch.startsAtMonth
+                  : expense.startsAtMonth,
+            }
+          : expense,
+      ),
+    });
+  },
   removeExpense(id: string) {
     const s = getFinanceState();
     write({
@@ -326,6 +403,10 @@ export const financeActions = {
       expenses: s.expenses.filter((e) => e.id !== id),
       pendingAction: s.pendingAction?.expenseId === id ? null : s.pendingAction,
     });
+  },
+  removeFixedExpense(id: string) {
+    const s = getFinanceState();
+    write({ ...s, fixedExpenses: s.fixedExpenses.filter((expense) => expense.id !== id) });
   },
   removeRevenue(id: string) {
     const s = getFinanceState();
@@ -446,6 +527,7 @@ export function chatMonthKeys(state: FinanceState) {
     if (messages.length) keys.add(month);
   });
   state.expenses.forEach((expense) => keys.add(monthKey(expense.date)));
+  state.fixedExpenses.forEach((expense) => keys.add(expense.startsAtMonth));
   state.revenues.forEach((revenue) => keys.add(monthKey(revenue.date)));
   return Array.from(keys).sort((a, b) => b.localeCompare(a));
 }
@@ -555,6 +637,40 @@ export function plannedRecurringIncomeForMonth(income: Income | null, month = cu
   return recurringPaymentsForMonth(income, month).reduce((sum, payment) => sum + payment.amount, 0);
 }
 
+export function fixedExpenseOccurrencesForMonth(
+  fixedExpenses: FixedExpense[],
+  month = currentMonthKey(),
+): FixedExpenseOccurrence[] {
+  const [year, monthIndex] = month.split("-").map(Number);
+  if (!year || !monthIndex) return [];
+
+  return fixedExpenses
+    .filter((expense) => month >= expense.startsAtMonth)
+    .map((expense) => ({
+      id: `${expense.id}:${month}`,
+      fixedExpenseId: expense.id,
+      description: expense.description,
+      amount: expense.amount,
+      category: expense.category,
+      date: isoFromParts(year, monthIndex, expense.payday),
+    }))
+    .filter((expense) => expense.amount > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export function fixedExpensesDueUntil(
+  fixedExpenses: FixedExpense[],
+  date = new Date(),
+  month = currentMonthKey(),
+) {
+  const cutoff = localISODate(date);
+  if (compareMonthToDate(month, date) > 0) return 0;
+
+  return fixedExpenseOccurrencesForMonth(fixedExpenses, month)
+    .filter((expense) => compareMonthToDate(month, date) < 0 || expense.date <= cutoff)
+    .reduce((sum, expense) => sum + expense.amount, 0);
+}
+
 export function recurringIncomeReceivedUntil(
   income: Income | null,
   date = new Date(),
@@ -583,9 +699,17 @@ export function cashBalanceUntil(
   const extraIncome = state.revenues
     .filter((revenue) => revenue.date <= cutoff)
     .reduce((sum, revenue) => sum + revenue.amount, 0);
-  const spent = state.expenses
+  const manualSpent = state.expenses
     .filter((expense) => expense.date <= cutoff)
     .reduce((sum, expense) => sum + expense.amount, 0);
+  const fixedSpent = monthKeysBetween(earliestMonthKey([
+    startMonth,
+    ...state.fixedExpenses.map((expense) => expense.startsAtMonth),
+  ]), cutoffMonth).reduce(
+    (sum, month) => sum + fixedExpensesDueUntil(state.fixedExpenses, date, month),
+    0,
+  );
+  const spent = manualSpent + fixedSpent;
 
   return {
     month: cutoffMonth,
@@ -641,8 +765,14 @@ export function summarize(state: FinanceState, month = currentMonthKey()) {
   const recurringIncome = recurringIncomeReceivedUntil(state.income, cutoffDate, month);
   const plannedRecurringIncome = plannedRecurringIncomeForMonth(state.income, month);
   const monthExpenses = state.expenses.filter((e) => monthKey(e.date) === month);
+  const monthFixedExpenses = fixedExpenseOccurrencesForMonth(state.fixedExpenses, month);
+  const dueFixedExpenses = monthFixedExpenses.filter((expense) => expense.date <= cutoff);
   const monthRevenues = state.revenues.filter((r) => monthKey(r.date) === month);
-  const spent = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const manualSpent = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const fixedSpent = dueFixedExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const plannedFixedSpent = monthFixedExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const spent = manualSpent + fixedSpent;
+  const plannedSpent = manualSpent + plannedFixedSpent;
   const extraIncome = monthRevenues.reduce((sum, r) => sum + r.amount, 0);
   const income = recurringIncome + extraIncome;
   const plannedIncome = plannedRecurringIncome + extraIncome;
@@ -657,13 +787,16 @@ export function summarize(state: FinanceState, month = currentMonthKey()) {
         : spent >= spendingLimit * 0.9
           ? "warning"
           : "ok";
-  const totalAllTime = state.expenses.reduce((sum, e) => sum + e.amount, 0);
+  const totalAllTime = cumulativeCash.spent;
   const totalRevenueAllTime = state.revenues.reduce((sum, r) => sum + r.amount, 0);
   const byCategory = Object.entries(
-    monthExpenses.reduce<Record<string, number>>((acc, e) => {
-      acc[e.category] = (acc[e.category] ?? 0) + e.amount;
-      return acc;
-    }, {}),
+    [...monthExpenses, ...dueFixedExpenses].reduce<Record<string, number>>(
+      (acc, e) => {
+        acc[e.category] = (acc[e.category] ?? 0) + e.amount;
+        return acc;
+      },
+      {},
+    ),
   )
     .map(([category, total]) => ({ category, total }))
     .sort((a, b) => b.total - a.total);
@@ -675,8 +808,8 @@ export function summarize(state: FinanceState, month = currentMonthKey()) {
       ? new Date(year, monthIndex, 0).getDate()
       : new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const dayOfMonth = month === currentMonthKey() ? now.getDate() : daysInMonth;
-  const dailyAverage = spent / dayOfMonth;
-  const projection = dailyAverage * daysInMonth;
+  const dailyAverage = manualSpent / dayOfMonth;
+  const projection = dailyAverage * daysInMonth + plannedFixedSpent;
 
   return {
     month,
@@ -686,6 +819,10 @@ export function summarize(state: FinanceState, month = currentMonthKey()) {
     plannedRecurringIncome,
     extraIncome,
     spent,
+    manualSpent,
+    fixedSpent,
+    plannedFixedSpent,
+    plannedSpent,
     spendingLimit,
     recommendedSpendingLimit: recommendedSpendingLimit(state.income),
     limitUsedPercent,
@@ -698,7 +835,10 @@ export function summarize(state: FinanceState, month = currentMonthKey()) {
     cumulativeSpent: cumulativeCash.spent,
     totalAllTime,
     totalRevenueAllTime,
-    count: monthExpenses.length,
+    count: monthExpenses.length + dueFixedExpenses.length,
+    manualExpenseCount: monthExpenses.length,
+    fixedExpenseCount: dueFixedExpenses.length,
+    plannedFixedExpenseCount: monthFixedExpenses.length,
     revenueCount: monthRevenues.length,
     byCategory,
     dailyAverage,
@@ -719,7 +859,8 @@ export function lastMonths(state: FinanceState, n = 6) {
       label: d.toLocaleDateString("pt-BR", { month: "short" }).replace(".", ""),
       total: state.expenses
         .filter((e) => monthKey(e.date) === key)
-        .reduce((s, e) => s + e.amount, 0),
+        .reduce((s, e) => s + e.amount, 0) +
+        fixedExpensesDueUntil(state.fixedExpenses, dateFromIso(monthEndISO(key)), key),
     });
   }
   return out;
@@ -749,6 +890,7 @@ export function buildCSV(state: FinanceState) {
     ["Limite de gastos", s.spendingLimit?.toFixed(2) ?? "-"],
     ["Uso do limite", s.limitUsedPercent != null ? `${s.limitUsedPercent}%` : "-"],
     ["Total gasto no mês", s.spent.toFixed(2)],
+    ["Despesas fixas consideradas no mês", s.fixedSpent.toFixed(2)],
     ["Saldo disponível acumulado", s.balance.toFixed(2)],
     ["Total gasto (histórico)", s.totalAllTime.toFixed(2)],
     [],
@@ -757,6 +899,19 @@ export function buildCSV(state: FinanceState) {
       .slice()
       .sort((a, b) => a.date.localeCompare(b.date))
       .map((e) => [e.date, e.description, e.category, e.amount.toFixed(2)]),
+    [],
+    ["DESPESAS FIXAS"],
+    ["Dia", "Descrição", "Categoria", "Valor", "A partir de"],
+    ...state.fixedExpenses
+      .slice()
+      .sort((a, b) => a.payday - b.payday)
+      .map((e) => [
+        String(e.payday),
+        e.description,
+        e.category,
+        e.amount.toFixed(2),
+        e.startsAtMonth,
+      ]),
     [],
     ["RECEITAS EXTRAS"],
     ["Data", "Descrição", "Valor"],
@@ -784,6 +939,7 @@ export function buildTXT(state: FinanceState) {
     `  Limite de gastos......: ${s.spendingLimit ? formatBRL(s.spendingLimit) : "não definido"}`,
     `  Uso do limite.........: ${s.limitUsedPercent != null ? `${s.limitUsedPercent}%` : "-"}`,
     `  Gasto no mês..........: ${formatBRL(s.spent)}`,
+    `  Despesas fixas mês....: ${formatBRL(s.fixedSpent)}`,
     `  Saldo acumulado.......: ${formatBRL(s.balance)}`,
     `  Total histórico.......: ${formatBRL(s.totalAllTime)}`,
     "",
@@ -802,6 +958,17 @@ export function buildTXT(state: FinanceState) {
               `  ${e.date}  ${formatBRL(e.amount).padStart(12)}  ${e.category} - ${e.description}`,
           )
       : ["  nenhuma despesa registrada"]),
+    "",
+    "DESPESAS FIXAS",
+    ...(state.fixedExpenses.length
+      ? state.fixedExpenses
+          .slice()
+          .sort((a, b) => a.payday - b.payday)
+          .map(
+            (e) =>
+              `  dia ${String(e.payday).padStart(2, "0")}  ${formatBRL(e.amount).padStart(12)}  ${e.category} - ${e.description} (desde ${e.startsAtMonth})`,
+          )
+      : ["  nenhuma despesa fixa cadastrada"]),
     "",
     "RECEITAS EXTRAS",
     ...(state.revenues.length

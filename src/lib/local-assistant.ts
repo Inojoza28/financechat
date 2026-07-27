@@ -100,6 +100,19 @@ const SPENDING_UNTIL_NEXT_MONTH_WORDS = [
 
 const LIMIT_WORDS = ["limite", "orcamento", "teto"];
 
+const FIXED_EXPENSE_WORDS = [
+  "despesa fixa",
+  "despesas fixas",
+  "gasto fixo",
+  "gastos fixos",
+  "conta fixa",
+  "contas fixas",
+  "recorrente",
+  "recorrentes",
+  "todo mes",
+  "mensal fixa",
+];
+
 const REMOVE_WORDS = [
   "apague",
   "apagar",
@@ -213,7 +226,7 @@ function parseMoneyValues(text: string) {
 
 function parsePaydays(text: string) {
   const normalized = normalize(text);
-  const matches = normalized.matchAll(/\bdia\s+([1-9]|[12]\d|3[01])\b/g);
+  const matches = normalized.matchAll(/\bdia\s+(0?[1-9]|[12]\d|3[01])\b/g);
   return Array.from(matches).map((match) => Number(match[1]));
 }
 
@@ -274,6 +287,7 @@ function hasFinancialSignal(text: string, amount: number | null) {
       ...NEXT_MONTH_WORDS,
       ...SPENDING_UNTIL_NEXT_MONTH_WORDS,
       ...LIMIT_WORDS,
+      ...FIXED_EXPENSE_WORDS,
       ...REMOVE_WORDS,
       "saldo",
       "disponivel",
@@ -406,11 +420,14 @@ function formatSummary(month: string) {
   const categoryText = categories.length
     ? `\n\nMaiores categorias: ${categories.map((c) => `${c.category} (${formatBRL(c.total)})`).join(", ")}.`
     : "";
+  const fixedText = s.plannedFixedExpenseCount
+    ? `\n\nDespesas fixas consideradas neste mês: **${formatBRL(s.fixedSpent)}** de **${formatBRL(s.plannedFixedSpent)}** previstos.`
+    : "";
   const limitText = s.spendingLimit
     ? `\n\nLimite de gastos: **${formatBRL(s.spendingLimit)}**. Você já usou **${s.limitUsedPercent}%** e ainda tem **${formatBRL(Math.max(0, s.limitRemaining ?? 0))}** dentro do limite.`
     : "";
 
-  return `Em ${monthLabel(month)}, você gastou **${formatBRL(s.spent)}** em ${s.count} lançamento${s.count === 1 ? "" : "s"}.\n\nRenda recorrente recebida nesta competência: **${formatBRL(s.recurringIncome)}**. Receitas extras do mês: **${formatBRL(s.extraIncome)}**. Saldo disponível acumulado: **${formatBRL(s.balance)}**.${limitText}${categoryText}`;
+  return `Em ${monthLabel(month)}, você gastou **${formatBRL(s.spent)}** em ${s.count} lançamento${s.count === 1 ? "" : "s"}.\n\nRenda recorrente recebida nesta competência: **${formatBRL(s.recurringIncome)}**. Receitas extras do mês: **${formatBRL(s.extraIncome)}**. Saldo disponível acumulado: **${formatBRL(s.balance)}**.${fixedText}${limitText}${categoryText}`;
 }
 
 function formatExpenseConfirmation(expense: Expense, month: string) {
@@ -632,6 +649,17 @@ function answerEditHelp() {
   return "Sim. Para editar uma despesa, entre no **Dashboard**, vá até **Últimos lançamentos** e clique na despesa que quer ajustar. Vai abrir um modal onde você pode alterar descrição, valor e categoria, salvar as mudanças ou excluir o lançamento com confirmação.";
 }
 
+function answerFixedExpenseHelp(text: string) {
+  const amount = parseMoney(text);
+  const days = parsePaydays(text);
+  const detail =
+    amount || days.length
+      ? `\n\nPelo que você informou, a despesa parece ser ${amount ? `de **${formatBRL(amount)}**` : "mensal"}${days[0] ? ` com vencimento no dia **${days[0]}**` : ""}. Para salvar com nome, categoria e início correto, use o Dashboard.`
+      : "\n\nSe quiser cadastrar uma despesa mensal fixa, informe valor, nome e dia de vencimento no Dashboard. Exemplo: internet, R$ 120,00, vencimento dia 10.";
+
+  return `As despesas fixas são gerenciadas pelo **Dashboard**, na seção **Despesas fixas**. Lá você pode adicionar, editar ou excluir recorrências mensais com segurança.\n\nQuando a data de vencimento chega em cada mês, essa despesa passa a ser considerada automaticamente no saldo, nos limites e nas projeções.${detail}`;
+}
+
 function answerNextPayment(text: string) {
   const state = getFinanceState();
   const payment = nextIncomePayment(state.income);
@@ -665,10 +693,10 @@ function answerNextMonthProjection(month: string) {
   const forecast = forecastNextMonth(state, month);
   const expenseText =
     forecast.registeredExpenseCount > 0
-      ? `${formatBRL(forecast.registeredExpenses)} em despesas já registradas`
-      : "nenhuma despesa já registrada";
+      ? `${formatBRL(forecast.registeredExpenses)} em despesas já registradas e fixas previstas`
+      : "nenhuma despesa registrada ou fixa prevista";
 
-  return `Se nada mais for registrado até lá, você deve chegar a **${formatBRL(forecast.projectedAvailable)}** em ${monthLabel(forecast.nextMonth)}.\n\nComo cheguei nesse valor:\n- Saldo acumulado projetado ao fim de ${monthLabel(forecast.currentMonth)}: **${formatBRL(forecast.projectedStartBalance)}**\n- Renda recorrente de ${monthLabel(forecast.nextMonth)}: **${formatBRL(forecast.plannedRecurringIncome)}**\n- Receitas extras já registradas para ${monthLabel(forecast.nextMonth)}: **${formatBRL(forecast.extraIncome)}**\n- Despesas já registradas para ${monthLabel(forecast.nextMonth)}: **${expenseText}**\n\nCálculo: ${formatBRL(forecast.projectedStartBalance)} + ${formatBRL(forecast.projectedIncome)} - ${formatBRL(forecast.registeredExpenses)} = **${formatBRL(forecast.projectedAvailable)}**.`;
+  return `Se nada mais for registrado até lá, você deve chegar a **${formatBRL(forecast.projectedAvailable)}** em ${monthLabel(forecast.nextMonth)}.\n\nComo cheguei nesse valor:\n- Saldo acumulado projetado ao fim de ${monthLabel(forecast.currentMonth)}: **${formatBRL(forecast.projectedStartBalance)}**\n- Renda recorrente de ${monthLabel(forecast.nextMonth)}: **${formatBRL(forecast.plannedRecurringIncome)}**\n- Receitas extras já registradas para ${monthLabel(forecast.nextMonth)}: **${formatBRL(forecast.extraIncome)}**\n- Despesas registradas e fixas previstas para ${monthLabel(forecast.nextMonth)}: **${expenseText}**\n\nCálculo: ${formatBRL(forecast.projectedStartBalance)} + ${formatBRL(forecast.projectedIncome)} - ${formatBRL(forecast.registeredExpenses)} = **${formatBRL(forecast.projectedAvailable)}**.`;
 }
 
 function answerSpendingUntilNextMonth(month: string) {
@@ -678,7 +706,7 @@ function answerSpendingUntilNextMonth(month: string) {
   const ifSpendAllCurrentBalance =
     forecast.projectedAvailable - Math.max(0, forecast.projectedStartBalance);
 
-  return `Você pode gastar até **${formatBRL(Math.max(0, current.balance))}** sem deixar seu saldo acumulado negativo.\n\nSe não gastar mais nada, a projeção para ${monthLabel(forecast.nextMonth)} fica em **${formatBRL(forecast.projectedAvailable)}**.\n\nSe gastar todo o saldo disponível, você começaria ${monthLabel(forecast.nextMonth)} com cerca de **${formatBRL(ifSpendAllCurrentBalance)}**, considerando a renda recorrente, receitas extras e despesas já registradas para o próximo mês.`;
+  return `Você pode gastar até **${formatBRL(Math.max(0, current.balance))}** sem deixar seu saldo acumulado negativo.\n\nSe não gastar mais nada, a projeção para ${monthLabel(forecast.nextMonth)} fica em **${formatBRL(forecast.projectedAvailable)}**.\n\nSe gastar todo o saldo disponível, você começaria ${monthLabel(forecast.nextMonth)} com cerca de **${formatBRL(ifSpendAllCurrentBalance)}**, considerando a renda recorrente, receitas extras, despesas já registradas e despesas fixas previstas para o próximo mês.`;
 }
 
 function simulateSpend(text: string, month: string) {
@@ -735,6 +763,10 @@ export function answerLocally(
 
   if (includesAny(normalized, EDIT_HELP_WORDS)) {
     return { text: answerEditHelp() };
+  }
+
+  if (includesAny(normalized, FIXED_EXPENSE_WORDS)) {
+    return { text: answerFixedExpenseHelp(text) };
   }
 
   if (includesAny(normalized, LIMIT_WORDS)) {

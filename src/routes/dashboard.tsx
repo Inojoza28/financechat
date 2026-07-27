@@ -9,7 +9,7 @@ import {
   Tooltip,
   XAxis,
 } from "recharts";
-import { Pencil, Trash2 } from "lucide-react";
+import { CalendarClock, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppNav } from "@/components/app-nav";
 import {
@@ -49,6 +49,7 @@ import {
   useFinance,
   type Expense,
   type FinanceState,
+  type FixedExpense,
 } from "@/lib/finance-store";
 
 const COLORS = [
@@ -118,10 +119,17 @@ function Stat({
 function DashboardContent({ state }: { state: FinanceState }) {
   const [selectedMonth, setSelectedMonth] = useState(() => currentMonthKey());
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
+  const [fixedExpenseModalOpen, setFixedExpenseModalOpen] = useState(false);
+  const [selectedFixedExpense, setSelectedFixedExpense] = useState<FixedExpense | null>(null);
   const [editDescription, setEditDescription] = useState("");
   const [editAmount, setEditAmount] = useState("");
   const [editCategory, setEditCategory] = useState<string>("Geral");
   const [editDate, setEditDate] = useState("");
+  const [fixedDescription, setFixedDescription] = useState("");
+  const [fixedAmount, setFixedAmount] = useState("");
+  const [fixedCategory, setFixedCategory] = useState<string>("Contas");
+  const [fixedPayday, setFixedPayday] = useState("1");
+  const [fixedStartsAtMonth, setFixedStartsAtMonth] = useState(currentMonthKey());
   const s = summarize(state, selectedMonth);
   const budgetIncome = monthlyIncome(state.income);
   const months = lastMonths(state, 6);
@@ -176,6 +184,81 @@ function DashboardContent({ state }: { state: FinanceState }) {
     closeExpense();
   };
 
+  const openNewFixedExpense = () => {
+    setSelectedFixedExpense(null);
+    setFixedDescription("");
+    setFixedAmount("");
+    setFixedCategory("Contas");
+    setFixedPayday("1");
+    setFixedStartsAtMonth(selectedMonth);
+    setFixedExpenseModalOpen(true);
+  };
+
+  const openFixedExpense = (expense: FixedExpense) => {
+    setSelectedFixedExpense(expense);
+    setFixedDescription(expense.description);
+    setFixedAmount(String(expense.amount).replace(".", ","));
+    setFixedCategory(expense.category);
+    setFixedPayday(String(expense.payday));
+    setFixedStartsAtMonth(expense.startsAtMonth);
+    setFixedExpenseModalOpen(true);
+  };
+
+  const closeFixedExpense = () => {
+    setFixedExpenseModalOpen(false);
+    setSelectedFixedExpense(null);
+  };
+
+  const saveFixedExpense = () => {
+    const amount = moneyFromInput(fixedAmount);
+    const description = fixedDescription.trim();
+    const payday = Number(fixedPayday);
+
+    if (!description) {
+      toast.error("Informe uma descrição para a despesa fixa.");
+      return;
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error("Informe um valor válido para a despesa fixa.");
+      return;
+    }
+
+    if (!Number.isFinite(payday) || payday < 1 || payday > 31) {
+      toast.error("Informe um dia de vencimento entre 1 e 31.");
+      return;
+    }
+
+    if (selectedFixedExpense) {
+      financeActions.updateFixedExpense(selectedFixedExpense.id, {
+        description,
+        amount,
+        category: fixedCategory,
+        payday,
+        startsAtMonth: fixedStartsAtMonth,
+      });
+      toast.success("Despesa fixa atualizada.");
+    } else {
+      financeActions.addFixedExpense({
+        description,
+        amount,
+        category: fixedCategory,
+        payday,
+        startsAtMonth: fixedStartsAtMonth,
+      });
+      toast.success("Despesa fixa cadastrada.");
+    }
+
+    closeFixedExpense();
+  };
+
+  const deleteSelectedFixedExpense = () => {
+    if (!selectedFixedExpense) return;
+    financeActions.removeFixedExpense(selectedFixedExpense.id);
+    toast.success("Despesa fixa excluída.");
+    closeFixedExpense();
+  };
+
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -210,7 +293,11 @@ function DashboardContent({ state }: { state: FinanceState }) {
           value={formatBRL(s.extraIncome)}
           hint={`${s.revenueCount} registro${s.revenueCount === 1 ? "" : "s"}`}
         />
-        <Stat label="Gasto no mês" value={formatBRL(s.spent)} hint={`${s.count} lançamentos`} />
+        <Stat
+          label="Gasto no mês"
+          value={formatBRL(s.spent)}
+          hint={`${s.manualExpenseCount} avulso${s.manualExpenseCount === 1 ? "" : "s"} · ${s.fixedExpenseCount} fixo${s.fixedExpenseCount === 1 ? "" : "s"}`}
+        />
         <Stat
           label="Saldo disponível"
           value={formatBRL(s.balance)}
@@ -291,6 +378,58 @@ function DashboardContent({ state }: { state: FinanceState }) {
           </div>
         </div>
       )}
+
+      <div className="animate-rise rounded-[18px] border border-border/55 bg-surface p-5 shadow-soft">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <CalendarClock className="size-4 text-muted-foreground" />
+              <p className="text-[13px] font-medium text-muted-foreground">Despesas fixas</p>
+            </div>
+            <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+              Entram automaticamente no saldo quando o vencimento chega em cada mês.
+            </p>
+          </div>
+          <Button className="h-9 rounded-xl" onClick={openNewFixedExpense}>
+            <Plus className="size-4" />
+            Adicionar
+          </Button>
+        </div>
+
+        {state.fixedExpenses.length === 0 ? (
+          <p className="mt-4 rounded-2xl bg-secondary/50 px-3 py-3 text-[13px] leading-relaxed text-muted-foreground">
+            Nenhuma despesa fixa cadastrada. Use este espaço para aluguel, internet, assinaturas,
+            parcelas e outros compromissos recorrentes.
+          </p>
+        ) : (
+          <ul className="mt-3 divide-y divide-border/60">
+            {state.fixedExpenses
+              .slice()
+              .sort((a, b) => a.payday - b.payday)
+              .map((expense) => (
+                <li key={expense.id}>
+                  <button
+                    type="button"
+                    onClick={() => openFixedExpense(expense)}
+                    className="flex w-full items-center justify-between gap-3 rounded-xl py-2.5 text-left transition-colors hover:bg-secondary/60 focus-visible:bg-secondary/60"
+                  >
+                    <div className="min-w-0 px-2">
+                      <p className="truncate text-[14px] font-medium">{expense.description}</p>
+                      <p className="text-[12px] text-muted-foreground">
+                        {expense.category} · dia {expense.payday} · desde{" "}
+                        {monthLabel(expense.startsAtMonth)}
+                      </p>
+                    </div>
+                    <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold tabular-nums">
+                      {formatBRL(expense.amount)}
+                      <Pencil className="size-3.5 text-muted-foreground" />
+                    </span>
+                  </button>
+                </li>
+              ))}
+          </ul>
+        )}
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="animate-rise rounded-[18px] border border-border/55 bg-surface p-5 shadow-soft">
@@ -518,6 +657,145 @@ function DashboardContent({ state }: { state: FinanceState }) {
               onClick={saveExpense}
             >
               Salvar alterações
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={fixedExpenseModalOpen} onOpenChange={(open) => !open && closeFixedExpense()}>
+        <DialogContent className="rounded-[20px] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedFixedExpense ? "Editar despesa fixa" : "Nova despesa fixa"}
+            </DialogTitle>
+            <DialogDescription>
+              Configure um gasto recorrente mensal. Ele será considerado automaticamente no saldo a
+              partir do mês escolhido.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3">
+            <div>
+              <Label htmlFor="fixed-description" className="text-[13px]">
+                Nome ou descrição
+              </Label>
+              <Input
+                id="fixed-description"
+                value={fixedDescription}
+                onChange={(event) => setFixedDescription(event.target.value)}
+                placeholder="Internet, aluguel, assinatura..."
+                className="mt-1.5 rounded-xl"
+              />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="fixed-amount" className="text-[13px]">
+                  Valor
+                </Label>
+                <Input
+                  id="fixed-amount"
+                  inputMode="decimal"
+                  value={fixedAmount}
+                  onChange={(event) => setFixedAmount(event.target.value)}
+                  placeholder="120,00"
+                  className="mt-1.5 rounded-xl"
+                />
+              </div>
+              <div>
+                <Label htmlFor="fixed-payday" className="text-[13px]">
+                  Dia de vencimento
+                </Label>
+                <Input
+                  id="fixed-payday"
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={fixedPayday}
+                  onChange={(event) => setFixedPayday(event.target.value)}
+                  className="mt-1.5 rounded-xl"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="fixed-category" className="text-[13px]">
+                  Categoria
+                </Label>
+                <select
+                  id="fixed-category"
+                  value={fixedCategory}
+                  onChange={(event) => setFixedCategory(event.target.value)}
+                  className="mt-1.5 h-10 w-full rounded-xl border border-input bg-background px-3 text-[14px] outline-none transition-colors focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring/20"
+                >
+                  {CATEGORIES.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <Label htmlFor="fixed-starts-at" className="text-[13px]">
+                  A partir de
+                </Label>
+                <Input
+                  id="fixed-starts-at"
+                  type="month"
+                  value={fixedStartsAtMonth}
+                  onChange={(event) => setFixedStartsAtMonth(event.target.value)}
+                  className="mt-1.5 rounded-xl"
+                />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:space-x-0">
+            <div className="order-2 flex w-full gap-2 sm:order-1 sm:w-auto">
+              {selectedFixedExpense && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" className="flex-1 rounded-xl sm:flex-none">
+                      <Trash2 className="size-4" />
+                      Excluir
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent className="rounded-[20px]">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Excluir esta despesa fixa?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Essa ação remove a recorrência e atualiza saldo, limite, gráficos e
+                        projeções. Não dá para desfazer.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="gap-2 sm:space-x-0">
+                      <AlertDialogCancel className="mt-0 rounded-xl">Cancelar</AlertDialogCancel>
+                      <AlertDialogAction
+                        className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        onClick={deleteSelectedFixedExpense}
+                      >
+                        Excluir definitivamente
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+
+              <Button
+                variant="outline"
+                className="flex-1 rounded-xl sm:flex-none"
+                onClick={closeFixedExpense}
+              >
+                Cancelar
+              </Button>
+            </div>
+
+            <Button
+              className="order-1 w-full rounded-xl sm:order-2 sm:w-auto"
+              onClick={saveFixedExpense}
+            >
+              Salvar
             </Button>
           </DialogFooter>
         </DialogContent>
