@@ -74,24 +74,40 @@ function Stat({
   hint?: string;
   accent?: "positive" | "negative";
 }) {
+  const isMoney = value.startsWith("R$ ");
+  const [currency, amount] = isMoney ? ["R$", value.replace("R$ ", "")] : ["", value];
+  const valueLength = value.length;
+  const valueFontSize = isMoney
+    ? `clamp(1.18rem, ${valueLength > 12 ? "4.65vw" : "5.2vw"}, 1.9rem)`
+    : `clamp(1.35rem, ${valueLength > 10 ? "5vw" : "5.8vw"}, 1.9rem)`;
+
   return (
-    <div className="animate-rise flex min-h-[138px] flex-col rounded-[18px] border border-border/55 bg-surface p-4 shadow-soft sm:min-h-[150px] sm:p-5">
+    <div className="animate-rise flex min-h-[138px] min-w-0 flex-col overflow-hidden rounded-[18px] border border-border/55 bg-surface px-3.5 py-4 shadow-soft sm:min-h-[150px] sm:p-5">
       <p className="text-[12.5px] font-medium leading-snug text-muted-foreground sm:text-[13px]">
         {label}
       </p>
       <p
-        className={`mt-2 break-words text-[clamp(1.45rem,6.7vw,2rem)] font-semibold leading-[1.08] tracking-tight tabular-nums sm:text-2xl ${
+        className={`mt-2 flex min-w-0 max-w-full items-baseline gap-1 overflow-hidden whitespace-nowrap font-semibold leading-none tracking-tight tabular-nums sm:gap-1.5 ${
           accent === "positive"
             ? "text-success"
             : accent === "negative"
               ? "text-destructive"
               : "text-foreground"
         }`}
+        style={{ fontSize: valueFontSize }}
+        title={value}
       >
-        {value}
+        {isMoney ? (
+          <>
+            <span className="shrink-0">{currency}</span>
+            <span className="min-w-0 overflow-hidden text-ellipsis">{amount}</span>
+          </>
+        ) : (
+          <span className="min-w-0 overflow-hidden text-ellipsis">{value}</span>
+        )}
       </p>
       {hint && (
-        <p className="mt-auto pt-2 text-[12px] leading-snug text-muted-foreground sm:text-[12.5px]">
+        <p className="mt-auto min-w-0 pt-2 text-[12px] leading-snug text-muted-foreground sm:text-[12.5px]">
           {hint}
         </p>
       )}
@@ -183,7 +199,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
         </select>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-4">
         <Stat
           label="Renda recorrente"
           value={formatBRL(budgetIncome)}
