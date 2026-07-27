@@ -9,17 +9,45 @@ import {
   Tooltip,
   XAxis,
 } from "recharts";
+import { Pencil, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { AppNav } from "@/components/app-nav";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  CATEGORIES,
   chatMonthKeys,
   currentMonthKey,
+  financeActions,
   formatBRL,
   incomeLabel,
   lastMonths,
   monthKey,
   monthLabel,
+  monthlyIncome,
   summarize,
   useFinance,
+  type Expense,
   type FinanceState,
 } from "@/lib/finance-store";
 
@@ -30,6 +58,10 @@ const COLORS = [
   "var(--chart-4)",
   "var(--chart-5)",
 ];
+
+function moneyFromInput(value: string) {
+  return Number(value.replace(/\./g, "").replace(",", "."));
+}
 
 function Stat({
   label,
@@ -63,7 +95,13 @@ function Stat({
 
 function DashboardContent({ state }: { state: FinanceState }) {
   const [selectedMonth, setSelectedMonth] = useState(() => currentMonthKey());
+  const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
+  const [editDescription, setEditDescription] = useState("");
+  const [editAmount, setEditAmount] = useState("");
+  const [editCategory, setEditCategory] = useState<string>("Geral");
+  const [editDate, setEditDate] = useState("");
   const s = summarize(state, selectedMonth);
+  const budgetIncome = monthlyIncome(state.income);
   const months = lastMonths(state, 6);
   const monthOptions = useMemo(() => chatMonthKeys(state), [state]);
   const recent = state.expenses
@@ -71,6 +109,50 @@ function DashboardContent({ state }: { state: FinanceState }) {
     .slice()
     .reverse()
     .slice(0, 8);
+
+  const openExpense = (expense: Expense) => {
+    setSelectedExpense(expense);
+    setEditDescription(expense.description);
+    setEditAmount(String(expense.amount).replace(".", ","));
+    setEditCategory(expense.category);
+    setEditDate(expense.date);
+  };
+
+  const closeExpense = () => {
+    setSelectedExpense(null);
+  };
+
+  const saveExpense = () => {
+    if (!selectedExpense) return;
+    const amount = moneyFromInput(editAmount);
+    const description = editDescription.trim();
+
+    if (!description) {
+      toast.error("Informe uma descrição para a despesa.");
+      return;
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error("Informe um valor válido para a despesa.");
+      return;
+    }
+
+    financeActions.updateExpense(selectedExpense.id, {
+      description,
+      amount,
+      category: editCategory,
+      date: editDate || selectedExpense.date,
+    });
+    toast.success("Despesa atualizada.");
+    closeExpense();
+  };
+
+  const deleteSelectedExpense = () => {
+    if (!selectedExpense) return;
+    financeActions.removeExpense(selectedExpense.id);
+    toast.success("Despesa excluída.");
+    closeExpense();
+  };
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 px-4 py-6">
@@ -97,13 +179,9 @@ function DashboardContent({ state }: { state: FinanceState }) {
 
       <div className="grid grid-cols-2 gap-3">
         <Stat
-          label="Receita total"
-          value={formatBRL(s.income)}
-          hint={
-            state.income
-              ? `${incomeLabel(state.income)} + ${formatBRL(s.extraIncome)} extras`
-              : "ainda não cadastrada"
-          }
+          label="Renda recorrente"
+          value={formatBRL(budgetIncome)}
+          hint={state.income ? incomeLabel(state.income) : "ainda não cadastrada"}
         />
         <Stat
           label="Receitas extras"
@@ -114,7 +192,18 @@ function DashboardContent({ state }: { state: FinanceState }) {
         <Stat
           label="Saldo disponível"
           value={formatBRL(s.balance)}
+          hint="acumulado até este período"
           accent={s.balance >= 0 ? "positive" : "negative"}
+        />
+        <Stat
+          label="Limite de gastos"
+          value={s.spendingLimit ? formatBRL(s.spendingLimit) : "Não definido"}
+          hint={
+            s.spendingLimit
+              ? `${s.limitUsedPercent}% usado · ${formatBRL(Math.max(0, s.limitRemaining ?? 0))} livres`
+              : `sugestão: ${formatBRL(s.recommendedSpendingLimit)}`
+          }
+          accent={s.limitStatus === "exceeded" ? "negative" : undefined}
         />
         <Stat
           label="Projeção do mês"
@@ -123,19 +212,57 @@ function DashboardContent({ state }: { state: FinanceState }) {
         />
       </div>
 
-      {s.income > 0 && (
+      {s.spendingLimit && (
+        <div className="animate-rise rounded-[18px] border border-border/55 bg-surface p-5 shadow-soft">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <div>
+              <p className="text-[13px] font-medium text-muted-foreground">Consumo do limite</p>
+              <p className="mt-1 text-[13px] text-muted-foreground">
+                {s.limitStatus === "exceeded"
+                  ? `Voce passou ${formatBRL(Math.abs(s.limitRemaining ?? 0))} do limite definido.`
+                  : `Ainda restam ${formatBRL(Math.max(0, s.limitRemaining ?? 0))} dentro do teto.`}
+              </p>
+            </div>
+            <p
+              className={`text-[13px] font-semibold tabular-nums ${
+                s.limitStatus === "exceeded"
+                  ? "text-destructive"
+                  : s.limitStatus === "warning"
+                    ? "text-warning"
+                    : "text-foreground"
+              }`}
+            >
+              {s.limitUsedPercent}%
+            </p>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
+            <div
+              className={`h-full rounded-full transition-all duration-700 ${
+                s.limitStatus === "exceeded"
+                  ? "bg-destructive"
+                  : s.limitStatus === "warning"
+                    ? "bg-warning"
+                    : "bg-success"
+              }`}
+              style={{ width: `${Math.min(100, s.limitUsedPercent ?? 0)}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {budgetIncome > 0 && (
         <div className="animate-rise rounded-[18px] border border-border/55 bg-surface p-5 shadow-soft">
           <div className="flex items-baseline justify-between">
             <p className="text-[13px] font-medium text-muted-foreground">Orçamento utilizado</p>
             <p className="text-[13px] font-semibold tabular-nums">
-              {Math.round((s.spent / s.income) * 100)}%
+              {Math.round((s.spent / budgetIncome) * 100)}%
             </p>
           </div>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
             <div
               className="h-full rounded-full transition-all duration-700"
               style={{
-                width: `${Math.min(100, (s.spent / s.income) * 100)}%`,
+                width: `${Math.min(100, (s.spent / budgetIncome) * 100)}%`,
                 background: "var(--gradient-brand)",
               }}
             />
@@ -235,21 +362,144 @@ function DashboardContent({ state }: { state: FinanceState }) {
         ) : (
           <ul className="mt-3 divide-y divide-border/60">
             {recent.map((e) => (
-              <li key={e.id} className="flex items-center justify-between gap-3 py-2.5">
-                <div className="min-w-0">
-                  <p className="truncate text-[14px] font-medium">{e.description}</p>
-                  <p className="text-[12px] text-muted-foreground">
-                    {e.category} · {new Date(`${e.date}T12:00:00`).toLocaleDateString("pt-BR")}
-                  </p>
-                </div>
-                <span className="shrink-0 text-[14px] font-semibold tabular-nums">
-                  {formatBRL(e.amount)}
-                </span>
+              <li key={e.id}>
+                <button
+                  type="button"
+                  onClick={() => openExpense(e)}
+                  className="flex w-full items-center justify-between gap-3 rounded-xl py-2.5 text-left transition-colors hover:bg-secondary/60 focus-visible:bg-secondary/60"
+                >
+                  <div className="min-w-0 px-2">
+                    <p className="truncate text-[14px] font-medium">{e.description}</p>
+                    <p className="text-[12px] text-muted-foreground">
+                      {e.category} · {new Date(`${e.date}T12:00:00`).toLocaleDateString("pt-BR")}
+                    </p>
+                  </div>
+                  <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold tabular-nums">
+                    {formatBRL(e.amount)}
+                    <Pencil className="size-3.5 text-muted-foreground" />
+                  </span>
+                </button>
               </li>
             ))}
           </ul>
         )}
       </div>
+
+      <Dialog open={Boolean(selectedExpense)} onOpenChange={(open) => !open && closeExpense()}>
+        <DialogContent className="rounded-[20px] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Editar despesa</DialogTitle>
+            <DialogDescription>
+              Ajuste os dados do lançamento. Os resumos e gráficos são atualizados na hora.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3">
+            <div>
+              <Label htmlFor="expense-description" className="text-[13px]">
+                Descrição
+              </Label>
+              <Input
+                id="expense-description"
+                value={editDescription}
+                onChange={(event) => setEditDescription(event.target.value)}
+                className="mt-1.5 rounded-xl"
+              />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="expense-amount" className="text-[13px]">
+                  Valor
+                </Label>
+                <Input
+                  id="expense-amount"
+                  inputMode="decimal"
+                  value={editAmount}
+                  onChange={(event) => setEditAmount(event.target.value)}
+                  className="mt-1.5 rounded-xl"
+                />
+              </div>
+              <div>
+                <Label htmlFor="expense-date" className="text-[13px]">
+                  Data
+                </Label>
+                <Input
+                  id="expense-date"
+                  type="date"
+                  value={editDate}
+                  onChange={(event) => setEditDate(event.target.value)}
+                  className="mt-1.5 rounded-xl"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="expense-category" className="text-[13px]">
+                Categoria
+              </Label>
+              <select
+                id="expense-category"
+                value={editCategory}
+                onChange={(event) => setEditCategory(event.target.value)}
+                className="mt-1.5 h-10 w-full rounded-xl border border-input bg-background px-3 text-[14px] outline-none transition-colors focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring/20"
+              >
+                {CATEGORIES.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:space-x-0">
+            <div className="order-2 flex w-full gap-2 sm:order-1 sm:w-auto">
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" className="flex-1 rounded-xl sm:flex-none">
+                    <Trash2 className="size-4" />
+                    Excluir
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="rounded-[20px]">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Excluir esta despesa?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Essa ação remove o lançamento e atualiza saldo, limite, gráficos e projeções.
+                      Não dá para desfazer.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter className="gap-2 sm:space-x-0">
+                    <AlertDialogCancel className="mt-0 rounded-xl">Cancelar</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      onClick={deleteSelectedExpense}
+                    >
+                      Excluir definitivamente
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+
+              <Button
+                variant="outline"
+                className="flex-1 rounded-xl sm:flex-none"
+                onClick={closeExpense}
+              >
+                Cancelar
+              </Button>
+            </div>
+
+            <Button
+              className="order-1 w-full rounded-xl sm:order-2 sm:w-auto"
+              onClick={saveExpense}
+            >
+              Salvar alterações
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

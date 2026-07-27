@@ -3,6 +3,7 @@
   Download,
   FileSpreadsheet,
   FileText,
+  Gauge,
   RotateCcw,
   ShieldAlert,
   Trash2,
@@ -26,6 +27,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   buildCSV,
   buildTXT,
@@ -34,6 +36,8 @@ import {
   formatBRL,
   getFinanceState,
   incomeLabel,
+  localISODate,
+  recommendedSpendingLimit,
   useFinance,
   type IncomePeriod,
 } from "@/lib/finance-store";
@@ -82,8 +86,15 @@ function SettingsContent() {
   const [period, setPeriod] = useState<IncomePeriod>(state.income?.period ?? "monthly");
   const [firstAmount, setFirstAmount] = useState(String(state.income?.firstAmount ?? ""));
   const [secondAmount, setSecondAmount] = useState(String(state.income?.secondAmount ?? ""));
+  const [autoDeposit, setAutoDeposit] = useState(state.income?.autoDeposit ?? true);
+  const [payday, setPayday] = useState(String(state.income?.payday ?? 1));
+  const [firstPaymentDate, setFirstPaymentDate] = useState(
+    state.income?.firstPaymentDate ?? localISODate(),
+  );
   const [firstPayday, setFirstPayday] = useState(String(state.income?.firstPayday ?? 5));
   const [secondPayday, setSecondPayday] = useState(String(state.income?.secondPayday ?? 20));
+  const [spendingLimit, setSpendingLimit] = useState(String(state.spendingLimit ?? ""));
+  const suggestedLimit = recommendedSpendingLimit(state.income);
 
   const saveName = () => {
     financeActions.setAssistantName(name);
@@ -103,6 +114,7 @@ function SettingsContent() {
       }
 
       financeActions.setIncome(first + second, "biweekly", {
+        autoDeposit,
         firstAmount: first,
         secondAmount: second,
         firstPayday: dayOne,
@@ -117,8 +129,34 @@ function SettingsContent() {
       toast.error("Informe um valor de renda valido.");
       return;
     }
-    financeActions.setIncome(value, period);
+    financeActions.setIncome(value, period, {
+      autoDeposit,
+      payday: Number(payday),
+      firstPaymentDate,
+    });
     toast.success("Renda atualizada.");
+  };
+
+  const saveSpendingLimit = () => {
+    const value = moneyFromInput(spendingLimit);
+    if (!Number.isFinite(value) || value <= 0) {
+      toast.error("Informe um limite de gastos valido.");
+      return;
+    }
+
+    financeActions.setSpendingLimit(value);
+    toast.success("Limite de gastos atualizado.");
+  };
+
+  const useSuggestedLimit = () => {
+    if (suggestedLimit <= 0) {
+      toast.error("Cadastre sua renda antes de usar a sugestao automatica.");
+      return;
+    }
+
+    setSpendingLimit(String(suggestedLimit));
+    financeActions.setSpendingLimit(suggestedLimit);
+    toast.success("Limite sugerido aplicado.");
   };
 
   const exportData = (kind: "csv" | "txt") => {
@@ -166,10 +204,68 @@ function SettingsContent() {
       </Section>
 
       <Section
+        icon={Gauge}
+        title="Limite de gastos"
+        description="Defina um teto para o periodo. O app acompanha o consumo e avisa quando voce se aproxima do limite."
+      >
+        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+          <div>
+            <Label htmlFor="spending-limit" className="text-[13px]">
+              Valor maximo por periodo
+            </Label>
+            <Input
+              id="spending-limit"
+              inputMode="decimal"
+              placeholder={suggestedLimit > 0 ? String(suggestedLimit) : "1800"}
+              value={spendingLimit}
+              onChange={(e) => setSpendingLimit(e.target.value)}
+              className="mt-1.5 rounded-xl"
+            />
+          </div>
+          <Button onClick={saveSpendingLimit} className="rounded-xl">
+            Salvar limite
+          </Button>
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <Button variant="outline" className="rounded-xl" onClick={useSuggestedLimit}>
+            Usar 80% da renda
+          </Button>
+          {state.spendingLimit && (
+            <Button
+              variant="ghost"
+              className="rounded-xl"
+              onClick={() => {
+                setSpendingLimit("");
+                financeActions.setSpendingLimit(null);
+                toast.success("Limite removido.");
+              }}
+            >
+              Remover limite
+            </Button>
+          )}
+          <span className="text-[13px] text-muted-foreground">
+            Atual: {state.spendingLimit ? formatBRL(state.spendingLimit) : "nao definido"}
+          </span>
+        </div>
+      </Section>
+
+      <Section
         icon={WalletCards}
         title="Renda"
-        description="Para renda quinzenal, informe as duas datas de recebimento e o valor de cada entrada."
+        description="Defina valores, recorrência e datas exatas para que o saldo e as projeções respeitem seus pagamentos."
       >
+        <div className="mb-4 flex items-center justify-between gap-4 rounded-2xl border border-border/60 bg-background/70 p-3">
+          <div>
+            <Label htmlFor="auto-deposit" className="text-[13px] font-semibold">
+              Lançar renda automaticamente
+            </Label>
+            <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
+              Quando ativo, cada pagamento entra no saldo apenas na data configurada.
+            </p>
+          </div>
+          <Switch id="auto-deposit" checked={autoDeposit} onCheckedChange={setAutoDeposit} />
+        </div>
+
         <div className="flex flex-wrap gap-1 rounded-full bg-secondary p-1">
           {PERIODS.map((p) => (
             <button
@@ -237,18 +333,49 @@ function SettingsContent() {
             </div>
           </div>
         ) : (
-          <div className="mt-4 max-w-xs">
-            <Label htmlFor="income" className="text-[13px]">
-              Valor
-            </Label>
-            <Input
-              id="income"
-              inputMode="decimal"
-              placeholder="4500"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className="mt-1.5 rounded-xl"
-            />
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label htmlFor="income" className="text-[13px]">
+                Valor
+              </Label>
+              <Input
+                id="income"
+                inputMode="decimal"
+                placeholder={period === "weekly" ? "700" : "4500"}
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="mt-1.5 rounded-xl"
+              />
+            </div>
+            {period === "monthly" ? (
+              <div>
+                <Label htmlFor="monthly-payday" className="text-[13px]">
+                  Dia de recebimento
+                </Label>
+                <Input
+                  id="monthly-payday"
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={payday}
+                  onChange={(e) => setPayday(e.target.value)}
+                  className="mt-1.5 rounded-xl"
+                />
+              </div>
+            ) : (
+              <div>
+                <Label htmlFor="weekly-first-payment" className="text-[13px]">
+                  Primeira data de recebimento
+                </Label>
+                <Input
+                  id="weekly-first-payment"
+                  type="date"
+                  value={firstPaymentDate}
+                  onChange={(e) => setFirstPaymentDate(e.target.value)}
+                  className="mt-1.5 rounded-xl"
+                />
+              </div>
+            )}
           </div>
         )}
 

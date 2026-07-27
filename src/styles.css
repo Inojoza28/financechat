@@ -265,6 +265,19 @@
     outline-offset: 2px;
   }
 
+  button,
+  [role="button"],
+  a[href],
+  select,
+  summary {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+
   * {
     scrollbar-width: thin;
     scrollbar-color: color-mix(in oklab, var(--muted-foreground) 30%, transparent) transparent;
@@ -274,6 +287,14 @@
   h2,
   h3 {
     letter-spacing: 0;
+  }
+}
+
+@media (max-width: 768px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
   }
 }
 

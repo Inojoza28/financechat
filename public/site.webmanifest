@@ -1,0 +1,17 @@
+{
+  "name": "Finance Chat",
+  "short_name": "Finance Chat",
+  "description": "Controle financeiro pessoal por conversa.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fbfcfd",
+  "theme_color": "#1684d8",
+  "icons": [
+    {
+      "src": "/assets/imgs/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

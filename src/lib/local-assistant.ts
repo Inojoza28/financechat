@@ -4,6 +4,9 @@
   forecastNextMonth,
   formatBRL,
   getFinanceState,
+  incomeLabel,
+  isIncomeAutoDepositEnabled,
+  localISODate,
   monthKey,
   monthLabel,
   nextIncomePayment,
@@ -95,6 +98,8 @@ const SPENDING_UNTIL_NEXT_MONTH_WORDS = [
   "gastar ate o proximo mes",
 ];
 
+const LIMIT_WORDS = ["limite", "orcamento", "teto"];
+
 const REMOVE_WORDS = [
   "apague",
   "apagar",
@@ -103,8 +108,30 @@ const REMOVE_WORDS = [
   "delete",
   "cancele",
   "cancelar",
+  "cancela",
+  "desconsidere",
+  "desconsidera",
+  "exclui",
+  "excluir",
   "nao gastei",
 ];
+
+const EDIT_HELP_WORDS = [
+  "editar despesa",
+  "editar um gasto",
+  "alterar despesa",
+  "alterar um gasto",
+  "mudar despesa",
+  "mudar um gasto",
+  "corrigir despesa",
+  "corrigir um gasto",
+  "posso alterar um gasto",
+  "como faco para editar",
+];
+
+const CONFIRM_WORDS = ["sim", "confirmo", "confirmar", "pode apagar", "pode excluir", "isso"];
+
+const DENY_WORDS = ["nao", "não", "cancela", "cancelar", "deixa", "desistir", "mantem"];
 
 const CATEGORY_HINTS: Record<string, string[]> = {
   Alimentação: ["almoco", "jantar", "lanche", "mercado", "restaurante", "ifood", "comida", "cafe"],
@@ -172,6 +199,16 @@ function includesAny(text: string, words: string[]) {
   return words.some((word) => text.includes(word));
 }
 
+function isConfirmation(text: string) {
+  const normalized = normalize(text).trim();
+  return CONFIRM_WORDS.some((word) => normalized === word || normalized.includes(word));
+}
+
+function isDenial(text: string) {
+  const normalized = normalize(text).trim();
+  return DENY_WORDS.some((word) => normalized === word || normalized.includes(word));
+}
+
 function textFromMessage(message: NonNullable<ConversationContext["messages"]>[number]) {
   return (
     message.parts?.map((part) => (part.type === "text" ? (part.text ?? "") : "")).join(" ") ?? ""
@@ -224,26 +261,46 @@ function cleanRevenueDescription(text: string, amount: number) {
   return withoutAmount || `Receita extra de ${formatBRL(amount)}`;
 }
 
+function isoDateDaysAgo(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return localISODate(date);
+}
+
+function expenseLine(expense: Expense) {
+  return `${formatBRL(expense.amount)} em ${expense.category}: ${expense.description}`;
+}
+
 function formatSummary(month: string) {
   const s = summarize(getFinanceState(), month);
   const categories = s.byCategory.slice(0, 3);
   const categoryText = categories.length
     ? `\n\nMaiores categorias: ${categories.map((c) => `${c.category} (${formatBRL(c.total)})`).join(", ")}.`
     : "";
-  const extraText =
-    s.extraIncome > 0 ? `\n\nReceitas extras no período: **${formatBRL(s.extraIncome)}**.` : "";
+  const limitText = s.spendingLimit
+    ? `\n\nLimite de gastos: **${formatBRL(s.spendingLimit)}**. Você já usou **${s.limitUsedPercent}%** e ainda tem **${formatBRL(Math.max(0, s.limitRemaining ?? 0))}** dentro do limite.`
+    : "";
 
-  return `Em ${monthLabel(month)}, você gastou **${formatBRL(s.spent)}** em ${s.count} lançamento${s.count === 1 ? "" : "s"}.\n\nReceita total considerada: **${formatBRL(s.income)}**. Saldo disponível: **${formatBRL(s.balance)}**.${extraText}${categoryText}`;
+  return `Em ${monthLabel(month)}, você gastou **${formatBRL(s.spent)}** em ${s.count} lançamento${s.count === 1 ? "" : "s"}.\n\nRenda recorrente recebida nesta competência: **${formatBRL(s.recurringIncome)}**. Receitas extras do mês: **${formatBRL(s.extraIncome)}**. Saldo disponível acumulado: **${formatBRL(s.balance)}**.${limitText}${categoryText}`;
 }
 
 function formatExpenseConfirmation(expense: Expense, month: string) {
   const s = summarize(getFinanceState(), month);
-  return `Pronto, registrei a despesa de **${formatBRL(expense.amount)}** em ${expense.category}.\n\nTotal gasto no período: **${formatBRL(s.spent)}**. Saldo disponível: **${formatBRL(s.balance)}**.`;
+  const limitText =
+    s.spendingLimit == null
+      ? ""
+      : s.limitStatus === "exceeded"
+        ? `\n\nAtenção: você passou do limite de gastos em **${formatBRL(Math.abs(s.limitRemaining ?? 0))}**.`
+        : s.limitStatus === "warning"
+          ? `\n\nAtenção: você já usou **${s.limitUsedPercent}%** do seu limite. Ainda restam **${formatBRL(Math.max(0, s.limitRemaining ?? 0))}**.`
+          : `\n\nVocê usou **${s.limitUsedPercent}%** do limite e ainda tem **${formatBRL(Math.max(0, s.limitRemaining ?? 0))}** para gastar dentro do teto definido.`;
+
+  return `Pronto, registrei a despesa de **${formatBRL(expense.amount)}** em ${expense.category}.\n\nTotal gasto no período: **${formatBRL(s.spent)}**. Saldo disponível: **${formatBRL(s.balance)}**.${limitText}`;
 }
 
 function formatRevenueConfirmation(revenue: Revenue, month: string) {
   const s = summarize(getFinanceState(), month);
-  return `Receita extra registrada: **${formatBRL(revenue.amount)}**.\n\nEla foi somada ao período sem alterar sua renda base. Receita total em ${monthLabel(month)}: **${formatBRL(s.income)}**. Saldo disponível: **${formatBRL(s.balance)}**.`;
+  return `Receita extra registrada: **${formatBRL(revenue.amount)}**.\n\nEla foi somada ao seu saldo sem alterar a renda recorrente cadastrada. Extras em ${monthLabel(month)}: **${formatBRL(s.extraIncome)}**. Saldo disponível acumulado: **${formatBRL(s.balance)}**.`;
 }
 
 function incomePeriod(text: string): IncomePeriod {
@@ -261,20 +318,25 @@ function registerIncome(text: string) {
   }
 
   const period = incomePeriod(text);
+  const days = parsePaydays(text);
   if (period === "biweekly") {
-    const days = parsePaydays(text);
     const secondAmount = amounts[1];
     if (!secondAmount) {
       return "Para renda quinzenal, me diga as duas entradas e as datas. Exemplo: `Recebo R$ 2.000 no dia 5 e R$ 1.800 no dia 20`.";
     }
     financeActions.setIncome(amount + secondAmount, period, {
+      autoDeposit: true,
       firstAmount: amount,
       secondAmount,
       firstPayday: days[0] ?? 5,
       secondPayday: days[1] ?? 20,
     });
   } else {
-    financeActions.setIncome(amount, period);
+    financeActions.setIncome(amount, period, {
+      autoDeposit: true,
+      payday: days[0] ?? 1,
+      firstPaymentDate: localISODate(),
+    });
   }
   const labels: Record<IncomePeriod, string> = {
     monthly: "mensal",
@@ -284,19 +346,58 @@ function registerIncome(text: string) {
   const s = summarize(getFinanceState());
 
   const income = getFinanceState().income;
-  const detail =
-    income?.period === "biweekly"
-      ? `: **${formatBRL(income.firstAmount ?? 0)}** no dia ${income.firstPayday} e **${formatBRL(income.secondAmount ?? 0)}** no dia ${income.secondPayday}`
-      : `: **${formatBRL(amount)}**`;
+  const detail = income ? `: ${incomeLabel(income)}` : `: **${formatBRL(amount)}**`;
 
-  return `Renda ${labels[period]} registrada${detail}.\n\nRenda mensal considerada: **${formatBRL(s.income)}**.`;
+  return `Renda ${labels[period]} registrada${detail}.\n\nO lançamento automático ficou ativo. A renda recorrente será considerada no saldo quando cada data de pagamento chegar, sem alterar as receitas extras.`;
+}
+
+function setSpendingLimit(text: string, month: string) {
+  const amount = parseMoney(text);
+  if (!amount) {
+    const s = summarize(getFinanceState(), month);
+    const suggestion =
+      s.recommendedSpendingLimit > 0
+        ? ` Uma boa referência inicial, baseada em 80% da sua renda recorrente, é **${formatBRL(s.recommendedSpendingLimit)}**.`
+        : "";
+    return `Consigo configurar seu limite de gastos. Me diga o valor máximo para o período, por exemplo: \`Meu limite de gastos é R$ 1.800\`.${suggestion}`;
+  }
+
+  financeActions.setSpendingLimit(amount);
+  const s = summarize(getFinanceState(), month);
+
+  return `Limite de gastos definido em **${formatBRL(amount)}** por período.\n\nEm ${monthLabel(month)}, você já gastou **${formatBRL(s.spent)}**, o que representa **${s.limitUsedPercent}%** do limite. Ainda restam **${formatBRL(Math.max(0, s.limitRemaining ?? 0))}** dentro do teto.`;
+}
+
+function clearSpendingLimit() {
+  financeActions.setSpendingLimit(null);
+  return "Pronto, removi o limite de gastos. Suas despesas e receitas continuam salvas normalmente.";
+}
+
+function answerSpendingLimit(month: string) {
+  const s = summarize(getFinanceState(), month);
+  if (!s.spendingLimit) {
+    const suggestion =
+      s.recommendedSpendingLimit > 0
+        ? `\n\nPela sua renda atual, uma sugestão conservadora seria começar com **${formatBRL(s.recommendedSpendingLimit)}**.`
+        : "";
+    return `Você ainda não definiu um limite de gastos para o período.${suggestion}\n\nPara cadastrar, diga algo como: \`Meu limite de gastos é R$ 1.800\`.`;
+  }
+
+  const statusText =
+    s.limitStatus === "exceeded"
+      ? `Você ultrapassou o limite em **${formatBRL(Math.abs(s.limitRemaining ?? 0))}**.`
+      : s.limitStatus === "warning"
+        ? `Você está perto do limite: já usou **${s.limitUsedPercent}%**.`
+        : `Você está dentro do limite: usou **${s.limitUsedPercent}%**.`;
+
+  return `Seu limite de gastos em ${monthLabel(month)} é **${formatBRL(s.spendingLimit)}**.\n\n${statusText} Total gasto: **${formatBRL(s.spent)}**. Ainda disponível dentro do limite: **${formatBRL(Math.max(0, s.limitRemaining ?? 0))}**.`;
 }
 
 function registerRevenue(text: string, amount: number, month: string) {
   const revenue = financeActions.addRevenue({
     amount,
     description: cleanRevenueDescription(text, amount),
-    date: month === monthKey(new Date().toISOString().slice(0, 10)) ? null : `${month}-01`,
+    date: month === monthKey(localISODate()) ? null : `${month}-01`,
   });
 
   return formatRevenueConfirmation(revenue, month);
@@ -307,34 +408,99 @@ function registerExpense(text: string, amount: number, month: string) {
     amount,
     category: inferCategory(text),
     description: cleanDescription(text, amount),
-    date: month === monthKey(new Date().toISOString().slice(0, 10)) ? null : `${month}-01`,
+    date: month === monthKey(localISODate()) ? null : `${month}-01`,
   });
 
   return formatExpenseConfirmation(expense, month);
 }
 
-function findExpenseToRemove(text: string, state: FinanceState, month: string) {
+function findExpenseCandidatesToRemove(text: string, state: FinanceState, month: string) {
+  const normalized = normalize(text);
   const amount = parseMoney(text);
   const candidates = state.expenses
     .filter((expense) => monthKey(expense.date) === month)
     .slice()
-    .reverse();
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
-  if (amount) {
-    return candidates.find((expense) => Math.abs(expense.amount - amount) < 0.01) ?? null;
+  if (normalized.includes("ontem")) {
+    return candidates.filter((expense) => expense.date === isoDateDaysAgo(1));
   }
 
-  return candidates[0] ?? null;
+  if (
+    includesAny(normalized, [
+      "ultimo",
+      "ultima",
+      "anterior",
+      "acabei",
+      "essa despesa",
+      "esse gasto",
+      "aquele gasto",
+      "aquela despesa",
+    ])
+  ) {
+    return candidates.slice(0, 1);
+  }
+
+  if (amount) {
+    return candidates.filter((expense) => Math.abs(expense.amount - amount) < 0.01);
+  }
+
+  return candidates;
 }
 
 function removeExpense(text: string, month: string) {
-  const expense = findExpenseToRemove(text, getFinanceState(), month);
-  if (!expense) return "Não encontrei um lançamento desse período para remover.";
+  const state = getFinanceState();
+  const candidates = findExpenseCandidatesToRemove(text, state, month);
+  if (!candidates.length) {
+    financeActions.setPendingAction(null);
+    return "Não encontrei uma despesa correspondente nesse período. Você pode conferir os lançamentos no Dashboard ou me dizer o valor exato, por exemplo: `Apaga a despesa de R$ 25,27`.";
+  }
+
+  if (candidates.length > 1) {
+    financeActions.setPendingAction(null);
+    return [
+      "Encontrei mais de uma despesa possível. Para evitar apagar o lançamento errado, me diga qual delas você quer remover:",
+      ...candidates.slice(0, 5).map((expense) => `- ${expenseLine(expense)}`),
+    ].join("\n");
+  }
+
+  const expense = candidates[0];
+  financeActions.setPendingAction({
+    type: "deleteExpense",
+    expenseId: expense.id,
+    month,
+    createdAt: new Date().toISOString(),
+  });
+
+  return `Só para confirmar: você quer excluir **${expenseLine(expense)}**?\n\nResponda **sim** para confirmar ou **não** para manter o lançamento.`;
+}
+
+function answerPendingAction(text: string, month: string) {
+  const state = getFinanceState();
+  const pending = state.pendingAction;
+  if (!pending || pending.type !== "deleteExpense") return null;
+
+  const expense = state.expenses.find((item) => item.id === pending.expenseId);
+  if (!expense) {
+    financeActions.setPendingAction(null);
+    return "Essa despesa já não está mais disponível. Não apaguei nada.";
+  }
+
+  if (isDenial(text)) {
+    financeActions.setPendingAction(null);
+    return "Tudo certo, mantive a despesa registrada.";
+  }
+
+  if (!isConfirmation(text)) return null;
 
   financeActions.removeExpense(expense.id);
-  const s = summarize(getFinanceState(), month);
+  const s = summarize(getFinanceState(), pending.month);
 
-  return `Removi **${formatBRL(expense.amount)}** de ${expense.category}.\n\nTotal do período agora: **${formatBRL(s.spent)}**. Saldo disponível: **${formatBRL(s.balance)}**.`;
+  return `Pronto, excluí **${expenseLine(expense)}**.\n\nTotal de ${monthLabel(pending.month)} agora: **${formatBRL(s.spent)}**. Saldo disponível: **${formatBRL(s.balance)}**.`;
+}
+
+function answerEditHelp() {
+  return "Sim. Para editar uma despesa, entre no **Dashboard**, vá até **Últimos lançamentos** e clique na despesa que quer ajustar. Vai abrir um modal onde você pode alterar descrição, valor e categoria, salvar as mudanças ou excluir o lançamento com confirmação.";
 }
 
 function answerNextPayment(text: string) {
@@ -345,11 +511,12 @@ function answerNextPayment(text: string) {
   }
 
   const currentCash = cashBalanceUntil(state);
-  const currentMonth = monthKey(new Date().toISOString().slice(0, 10));
-  const currentSummary = summarize(state, currentMonth);
-  const registeredCashBalance =
-    currentCash.recurringReceived + currentSummary.extraIncome - currentSummary.spent;
+  const currentMonth = monthKey(localISODate());
+  const registeredCashBalance = currentCash.balance;
   const afterPayment = registeredCashBalance + payment.amount;
+  const autoText = isIncomeAutoDepositEnabled(state.income)
+    ? ""
+    : "\n\nObservação: o lançamento automático da renda está desativado. Este cálculo mostra uma projeção após o recebimento, mas o saldo só será atualizado automaticamente se você ativar essa opção em Ajustes.";
   const dateLabel = new Date(`${payment.date}T12:00:00`).toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "long",
@@ -358,10 +525,10 @@ function answerNextPayment(text: string) {
   const normalized = normalize(text);
 
   if (normalized.includes("quanto vou receber") || normalized.includes("valor")) {
-    return `Seu próximo recebimento está previsto para **${dateLabel}**.\n\nValor esperado: **${formatBRL(payment.amount)}**.`;
+    return `Seu próximo recebimento está previsto para **${dateLabel}**.\n\nValor esperado: **${formatBRL(payment.amount)}**.${autoText}`;
   }
 
-  return `Seu próximo recebimento está previsto para **${dateLabel}**, no valor de **${formatBRL(payment.amount)}**.\n\nConsiderando as receitas extras e todas as despesas já registradas em ${monthLabel(currentMonth)}, você tem **${formatBRL(registeredCashBalance)}** disponível antes desse pagamento. Após receber, a estimativa fica em **${formatBRL(afterPayment)}**.\n\nCálculo: ${formatBRL(currentCash.recurringReceived)} de renda recorrente já recebida + ${formatBRL(currentSummary.extraIncome)} em receitas extras - ${formatBRL(currentSummary.spent)} em despesas registradas + ${formatBRL(payment.amount)} do próximo pagamento.`;
+  return `Seu próximo recebimento está previsto para **${dateLabel}**, no valor de **${formatBRL(payment.amount)}**.\n\nSeu saldo disponível acumulado hoje é **${formatBRL(registeredCashBalance)}**. Após esse pagamento, a estimativa fica em **${formatBRL(afterPayment)}**.\n\nCálculo: saldo acumulado atual de ${formatBRL(registeredCashBalance)} + ${formatBRL(payment.amount)} do próximo pagamento.${autoText}`;
 }
 
 function answerNextMonthProjection(month: string) {
@@ -372,7 +539,7 @@ function answerNextMonthProjection(month: string) {
       ? `${formatBRL(forecast.registeredExpenses)} em despesas já registradas`
       : "nenhuma despesa já registrada";
 
-  return `Se nada mais for registrado até lá, você deve chegar a **${formatBRL(forecast.projectedAvailable)}** em ${monthLabel(forecast.nextMonth)}.\n\nComo cheguei nesse valor:\n- Saldo projetado ao fim de ${monthLabel(forecast.currentMonth)}: **${formatBRL(forecast.projectedStartBalance)}**\n- Renda recorrente prevista para ${monthLabel(forecast.nextMonth)}: **${formatBRL(forecast.recurringIncome)}**\n- Receitas extras já registradas para ${monthLabel(forecast.nextMonth)}: **${formatBRL(forecast.extraIncome)}**\n- Despesas já registradas para ${monthLabel(forecast.nextMonth)}: **${expenseText}**\n\nCálculo: ${formatBRL(forecast.projectedStartBalance)} + ${formatBRL(forecast.projectedIncome)} - ${formatBRL(forecast.registeredExpenses)} = **${formatBRL(forecast.projectedAvailable)}**.`;
+  return `Se nada mais for registrado até lá, você deve chegar a **${formatBRL(forecast.projectedAvailable)}** em ${monthLabel(forecast.nextMonth)}.\n\nComo cheguei nesse valor:\n- Saldo acumulado projetado ao fim de ${monthLabel(forecast.currentMonth)}: **${formatBRL(forecast.projectedStartBalance)}**\n- Renda recorrente de ${monthLabel(forecast.nextMonth)}: **${formatBRL(forecast.plannedRecurringIncome)}**\n- Receitas extras já registradas para ${monthLabel(forecast.nextMonth)}: **${formatBRL(forecast.extraIncome)}**\n- Despesas já registradas para ${monthLabel(forecast.nextMonth)}: **${expenseText}**\n\nCálculo: ${formatBRL(forecast.projectedStartBalance)} + ${formatBRL(forecast.projectedIncome)} - ${formatBRL(forecast.registeredExpenses)} = **${formatBRL(forecast.projectedAvailable)}**.`;
 }
 
 function answerSpendingUntilNextMonth(month: string) {
@@ -382,7 +549,7 @@ function answerSpendingUntilNextMonth(month: string) {
   const ifSpendAllCurrentBalance =
     forecast.projectedAvailable - Math.max(0, forecast.projectedStartBalance);
 
-  return `Você pode gastar até **${formatBRL(Math.max(0, current.balance))}** até o fim de ${monthLabel(month)} sem deixar o período negativo.\n\nSe não gastar mais nada, a projeção para ${monthLabel(forecast.nextMonth)} fica em **${formatBRL(forecast.projectedAvailable)}**.\n\nSe gastar todo o saldo disponível deste mês, você começaria ${monthLabel(forecast.nextMonth)} com cerca de **${formatBRL(ifSpendAllCurrentBalance)}**, considerando a renda prevista, receitas extras e despesas já registradas para o próximo mês.`;
+  return `Você pode gastar até **${formatBRL(Math.max(0, current.balance))}** sem deixar seu saldo acumulado negativo.\n\nSe não gastar mais nada, a projeção para ${monthLabel(forecast.nextMonth)} fica em **${formatBRL(forecast.projectedAvailable)}**.\n\nSe gastar todo o saldo disponível, você começaria ${monthLabel(forecast.nextMonth)} com cerca de **${formatBRL(ifSpendAllCurrentBalance)}**, considerando a renda recorrente, receitas extras e despesas já registradas para o próximo mês.`;
 }
 
 function simulateSpend(text: string, month: string) {
@@ -396,7 +563,7 @@ function simulateSpend(text: string, month: string) {
       ? `Sim. Depois desse gasto, ainda sobrariam **${formatBRL(after)}**.`
       : `Do jeito que está, esse gasto deixaria o saldo em **${formatBRL(after)}**.`;
 
-  return `${verdict}\n\nHoje o saldo disponível em ${monthLabel(month)} é **${formatBRL(s.balance)}**.`;
+  return `${verdict}\n\nHoje seu saldo disponível acumulado é **${formatBRL(s.balance)}**.`;
 }
 
 function listRecent(month: string) {
@@ -426,6 +593,30 @@ export function answerLocally(
   const standaloneAmount = parseStandaloneExpenseAmount(text);
   const amount = standaloneAmount ?? parseMoney(text);
   const vagueBalanceFollowUp = isVagueFollowUpAboutBalance(normalized);
+  const pendingResponse = answerPendingAction(text, month);
+
+  if (pendingResponse) {
+    return { text: pendingResponse };
+  }
+
+  if (includesAny(normalized, EDIT_HELP_WORDS)) {
+    return { text: answerEditHelp() };
+  }
+
+  if (includesAny(normalized, LIMIT_WORDS)) {
+    if (includesAny(normalized, ["remover", "remova", "apagar", "apague", "tirar", "limpar"])) {
+      return { text: clearSpendingLimit() };
+    }
+
+    if (
+      amount ||
+      includesAny(normalized, ["definir", "defina", "cadastrar", "cadastre", "meu limite e"])
+    ) {
+      return { text: setSpendingLimit(text, month) };
+    }
+
+    return { text: answerSpendingLimit(month) };
+  }
 
   if (includesAny(normalized, REMOVE_WORDS)) {
     return { text: removeExpense(text, month) };
@@ -482,7 +673,7 @@ export function answerLocally(
 
   if (normalized.includes("saldo") || normalized.includes("disponivel")) {
     const s = summarize(getFinanceState(), month);
-    return { text: `Seu saldo disponível em ${monthLabel(month)} é **${formatBRL(s.balance)}**.` };
+    return { text: `Seu saldo disponível acumulado até ${monthLabel(month)} é **${formatBRL(s.balance)}**.` };
   }
 
   if (

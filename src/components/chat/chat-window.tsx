@@ -195,9 +195,13 @@ export function ChatWindow() {
         <div className="mx-auto w-full max-w-3xl px-4 pt-3 pb-4">
           {state.income && (
             <p className="mb-2 text-center text-[12px] text-muted-foreground">
-              Disponível em {monthLabel(selectedMonth)}:{" "}
+              Saldo acumulado até {monthLabel(selectedMonth)}:{" "}
               <span className="font-semibold text-foreground">{formatBRL(summary.balance)}</span> ·
-              extras {formatBRL(summary.extraIncome)} · gasto {formatBRL(summary.spent)}
+              extras do mês {formatBRL(summary.extraIncome)} · gasto do mês{" "}
+              {formatBRL(summary.spent)}
+              {summary.spendingLimit
+                ? ` · limite ${summary.limitUsedPercent}% (${formatBRL(Math.max(0, summary.limitRemaining ?? 0))} livres)`
+                : ""}
             </p>
           )}
           <PromptInput
@@ -209,7 +213,7 @@ export function ChatWindow() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={`Fale com o ${state.assistantName}...`}
-              className="text-[15px]"
+              className="text-[16px] sm:text-[15px]"
             />
             <PromptInputFooter className="justify-end border-0 p-2">
               <PromptInputSubmit

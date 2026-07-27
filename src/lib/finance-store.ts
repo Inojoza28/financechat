@@ -6,10 +6,20 @@ export type IncomePeriod = "monthly" | "biweekly" | "weekly";
 export type Income = {
   amount: number;
   period: IncomePeriod;
+  autoDeposit?: boolean;
+  startsAtMonth?: string;
+  payday?: number;
+  firstPaymentDate?: string;
   firstPayday?: number;
   secondPayday?: number;
   firstAmount?: number;
   secondAmount?: number;
+};
+
+export type RecurringIncomePayment = {
+  date: string;
+  amount: number;
+  label: string;
 };
 
 export type Expense = {
@@ -29,10 +39,19 @@ export type Revenue = {
   createdAt: string;
 };
 
+export type PendingAssistantAction = {
+  type: "deleteExpense";
+  expenseId: string;
+  month: string;
+  createdAt: string;
+};
+
 export type FinanceState = {
   assistantName: string;
   currency: string;
   income: Income | null;
+  spendingLimit: number | null;
+  pendingAction: PendingAssistantAction | null;
   expenses: Expense[];
   revenues: Revenue[];
   messages: UIMessage[];
@@ -57,6 +76,8 @@ const initialState: FinanceState = {
   assistantName: "Fin",
   currency: "BRL",
   income: null,
+  spendingLimit: null,
+  pendingAction: null,
   expenses: [],
   revenues: [],
   messages: [],
@@ -75,6 +96,20 @@ const clampPayday = (value: number | undefined, fallback: number) => {
   const day = Math.trunc(Number(value));
   return Number.isFinite(day) ? Math.min(31, Math.max(1, day)) : fallback;
 };
+
+function isValidMonthKey(value?: string) {
+  return Boolean(value && /^\d{4}-\d{2}$/.test(value));
+}
+
+export function localISODate(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate(),
+  ).padStart(2, "0")}`;
+}
+
+function earliestMonthKey(keys: string[]) {
+  return keys.filter(isValidMonthKey).sort()[0] ?? currentMonthKey();
+}
 
 let state: FinanceState = initialState;
 let hydrated = false;
@@ -105,6 +140,16 @@ function read(): FinanceState {
     const income = parsed.income
       ? {
           ...parsed.income,
+          autoDeposit: parsed.income.autoDeposit ?? true,
+          startsAtMonth:
+            parsed.income.startsAtMonth ??
+            earliestMonthKey([
+              currentMonthKey(),
+              ...expenses.map((expense) => monthKey(expense.date)),
+              ...revenues.map((revenue) => monthKey(revenue.date)),
+            ]),
+          payday: clampPayday(parsed.income.payday, 1),
+          firstPaymentDate: parsed.income.firstPaymentDate,
           amount:
             parsed.income.period === "biweekly" &&
             (parsed.income.firstAmount != null || parsed.income.secondAmount != null)
@@ -112,7 +157,19 @@ function read(): FinanceState {
               : parsed.income.amount,
         }
       : null;
-    return { ...initialState, ...parsed, income, expenses, revenues, messagesByMonth };
+    const spendingLimit =
+      parsed.spendingLimit != null
+        ? normalizeMoney(parsed.spendingLimit)
+        : initialState.spendingLimit;
+    return {
+      ...initialState,
+      ...parsed,
+      income,
+      spendingLimit,
+      expenses,
+      revenues,
+      messagesByMonth,
+    };
   } catch {
     return initialState;
   }
@@ -172,27 +229,57 @@ export const financeActions = {
     amount: number,
     period: IncomePeriod,
     details?: {
+      autoDeposit?: boolean;
+      payday?: number;
+      firstPaymentDate?: string;
+      startsAtMonth?: string;
       firstPayday?: number;
       secondPayday?: number;
       firstAmount?: number;
       secondAmount?: number;
     },
   ) {
+    const autoDeposit = details?.autoDeposit ?? true;
+    const startsAtMonth =
+      details?.startsAtMonth ??
+      getFinanceState().income?.startsAtMonth ??
+      currentMonthKey();
     const income: Income =
       period === "biweekly"
         ? {
             amount: normalizeMoney((details?.firstAmount ?? amount) + (details?.secondAmount ?? 0)),
             period,
+            autoDeposit,
+            startsAtMonth,
             firstPayday: clampPayday(details?.firstPayday, 5),
             secondPayday: clampPayday(details?.secondPayday, 20),
             firstAmount: normalizeMoney(details?.firstAmount ?? amount),
             secondAmount: normalizeMoney(details?.secondAmount ?? 0),
           }
-        : { amount: normalizeMoney(amount), period };
+        : {
+            amount: normalizeMoney(amount),
+            period,
+            autoDeposit,
+            startsAtMonth,
+            payday: period === "monthly" ? clampPayday(details?.payday, 1) : undefined,
+            firstPaymentDate:
+              period === "weekly"
+                ? details?.firstPaymentDate || localISODate()
+                : undefined,
+          };
     write({ ...getFinanceState(), income });
   },
   clearIncome() {
     write({ ...getFinanceState(), income: null });
+  },
+  setSpendingLimit(amount: number | null) {
+    write({
+      ...getFinanceState(),
+      spendingLimit: amount != null && amount > 0 ? normalizeMoney(amount) : null,
+    });
+  },
+  setPendingAction(pendingAction: PendingAssistantAction | null) {
+    write({ ...getFinanceState(), pendingAction });
   },
   addExpense(input: {
     description: string;
@@ -205,7 +292,7 @@ export const financeActions = {
       description: input.description.trim().slice(0, 120),
       amount: normalizeMoney(input.amount),
       category: normalizeCategory(input.category?.trim()),
-      date: input.date || new Date().toISOString().slice(0, 10),
+      date: input.date || localISODate(),
       createdAt: new Date().toISOString(),
     };
     const s = getFinanceState();
@@ -217,7 +304,7 @@ export const financeActions = {
       id: uid(),
       description: input.description.trim().slice(0, 120) || "Receita extra",
       amount: normalizeMoney(input.amount),
-      date: input.date || new Date().toISOString().slice(0, 10),
+      date: input.date || localISODate(),
       createdAt: new Date().toISOString(),
     };
     const s = getFinanceState();
@@ -229,11 +316,16 @@ export const financeActions = {
     write({
       ...s,
       expenses: s.expenses.map((e) => (e.id === id ? { ...e, ...patch } : e)),
+      pendingAction: s.pendingAction?.expenseId === id ? null : s.pendingAction,
     });
   },
   removeExpense(id: string) {
     const s = getFinanceState();
-    write({ ...s, expenses: s.expenses.filter((e) => e.id !== id) });
+    write({
+      ...s,
+      expenses: s.expenses.filter((e) => e.id !== id),
+      pendingAction: s.pendingAction?.expenseId === id ? null : s.pendingAction,
+    });
   },
   removeRevenue(id: string) {
     const s = getFinanceState();
@@ -283,28 +375,60 @@ export function monthlyIncome(income: Income | null): number {
   }
 }
 
+export function isIncomeAutoDepositEnabled(income: Income | null) {
+  return income?.autoDeposit ?? true;
+}
+
 export function incomeLabel(income: Income | null) {
   if (!income) return "não informada";
+  const autoText = isIncomeAutoDepositEnabled(income) ? "automático ativo" : "automático inativo";
   if (income.period === "biweekly") {
-    return `${formatBRL(income.firstAmount ?? income.amount)} no dia ${income.firstPayday ?? 5} e ${formatBRL(income.secondAmount ?? 0)} no dia ${income.secondPayday ?? 20}`;
+    return `${formatBRL(income.firstAmount ?? income.amount)} no dia ${income.firstPayday ?? 5} e ${formatBRL(income.secondAmount ?? 0)} no dia ${income.secondPayday ?? 20} (${autoText})`;
   }
   const periodLabel: Record<IncomePeriod, string> = {
     monthly: "mensal",
     biweekly: "quinzenal",
     weekly: "semanal",
   };
-  return `${formatBRL(income.amount)} (${periodLabel[income.period]})`;
+  if (income.period === "monthly") {
+    return `${formatBRL(income.amount)} no dia ${income.payday ?? 1} (${periodLabel[income.period]}, ${autoText})`;
+  }
+  return `${formatBRL(income.amount)} (${periodLabel[income.period]}, a partir de ${formatDate(income.firstPaymentDate)}, ${autoText})`;
+}
+
+export function recommendedSpendingLimit(income: Income | null) {
+  const incomeAmount = monthlyIncome(income);
+  return incomeAmount > 0 ? normalizeMoney(incomeAmount * 0.8) : 0;
 }
 
 export const monthKey = (iso: string) => iso.slice(0, 7);
 
-export const currentMonthKey = () => new Date().toISOString().slice(0, 7);
+export const currentMonthKey = () => localISODate().slice(0, 7);
 
 export function offsetMonthKey(month: string, offset: number) {
   const [year, monthIndex] = month.split("-").map(Number);
   if (!year || !monthIndex) return currentMonthKey();
   const date = new Date(year, monthIndex - 1 + offset, 1);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function monthKeysBetween(startMonth: string, endMonth: string) {
+  if (!isValidMonthKey(startMonth) || !isValidMonthKey(endMonth) || startMonth > endMonth) {
+    return [];
+  }
+
+  const [startYear, startIndex] = startMonth.split("-").map(Number);
+  const [endYear, endIndex] = endMonth.split("-").map(Number);
+  const keys: string[] = [];
+  const date = new Date(startYear, startIndex - 1, 1);
+  const end = new Date(endYear, endIndex - 1, 1);
+
+  while (date <= end) {
+    keys.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`);
+    date.setMonth(date.getMonth() + 1);
+  }
+
+  return keys;
 }
 
 export function monthLabel(month: string) {
@@ -350,48 +474,121 @@ function biweeklyPaymentsForMonth(income: Income, year: number, monthIndex: numb
   ].filter((payment) => payment.amount > 0);
 }
 
+function isValidIsoDate(value?: string) {
+  return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+}
+
+function dateFromIso(value: string) {
+  return new Date(`${value}T12:00:00`);
+}
+
+function compareMonthToDate(month: string, date: Date) {
+  return month.localeCompare(localISODate(date).slice(0, 7));
+}
+
+function monthEndISO(month: string) {
+  const [year, monthIndex] = month.split("-").map(Number);
+  if (!year || !monthIndex) return localISODate();
+  return isoFromParts(year, monthIndex, daysInMonth(year, monthIndex));
+}
+
+function cutoffForMonth(month: string, date = new Date()) {
+  const today = localISODate(date);
+  const currentMonth = monthKey(today);
+  if (month < currentMonth) return monthEndISO(month);
+  if (month > currentMonth) return monthEndISO(month);
+  return today;
+}
+
+export function formatDate(iso?: string) {
+  if (!isValidIsoDate(iso)) return "data não definida";
+  return dateFromIso(iso).toLocaleDateString("pt-BR");
+}
+
+function weeklyPaymentsForMonth(income: Income, year: number, monthIndex: number) {
+  const start = dateFromIso(isoFromParts(year, monthIndex, 1));
+  const end = dateFromIso(isoFromParts(year, monthIndex, daysInMonth(year, monthIndex)));
+  const anchor = dateFromIso(
+    isValidIsoDate(income.firstPaymentDate)
+      ? income.firstPaymentDate!
+      : isoFromParts(year, monthIndex, 1),
+  );
+  const first = new Date(anchor);
+  const diffDays = Math.floor((start.getTime() - first.getTime()) / 86400000);
+  if (diffDays > 0) first.setDate(first.getDate() + Math.ceil(diffDays / 7) * 7);
+
+  const payments: RecurringIncomePayment[] = [];
+  for (const date = new Date(first); date <= end; date.setDate(date.getDate() + 7)) {
+    if (date >= start) {
+      payments.push({
+        date: localISODate(date),
+        amount: normalizeMoney(income.amount),
+        label: "pagamento semanal",
+      });
+    }
+  }
+  return payments;
+}
+
+export function recurringPaymentsForMonth(
+  income: Income | null,
+  month = currentMonthKey(),
+): RecurringIncomePayment[] {
+  if (!income) return [];
+  if (income.startsAtMonth && month < income.startsAtMonth) return [];
+  const [year, monthIndex] = month.split("-").map(Number);
+  if (!year || !monthIndex) return [];
+
+  if (income.period === "biweekly") return biweeklyPaymentsForMonth(income, year, monthIndex);
+  if (income.period === "weekly") return weeklyPaymentsForMonth(income, year, monthIndex);
+
+  return [
+    {
+      date: isoFromParts(year, monthIndex, income.payday ?? 1),
+      amount: normalizeMoney(income.amount),
+      label: "pagamento mensal",
+    },
+  ].filter((payment) => payment.amount > 0);
+}
+
+export function plannedRecurringIncomeForMonth(income: Income | null, month = currentMonthKey()) {
+  return recurringPaymentsForMonth(income, month).reduce((sum, payment) => sum + payment.amount, 0);
+}
+
 export function recurringIncomeReceivedUntil(
   income: Income | null,
   date = new Date(),
   month = currentMonthKey(),
 ) {
-  if (!income) return 0;
-  const [year, monthIndex] = month.split("-").map(Number);
-  if (!year || !monthIndex) return 0;
-  const cutoff = date.toISOString().slice(0, 10);
-
-  if (income.period === "biweekly") {
-    return biweeklyPaymentsForMonth(income, year, monthIndex)
-      .filter((payment) => payment.date <= cutoff)
-      .reduce((sum, payment) => sum + payment.amount, 0);
-  }
-
-  if (income.period === "weekly") {
-    const firstDay = new Date(year, monthIndex - 1, 1);
-    const cutoffDay = month === currentMonthKey() ? date.getDate() : daysInMonth(year, monthIndex);
-    const weeksReceived = Math.max(1, Math.ceil((cutoffDay + firstDay.getDay()) / 7));
-    return normalizeMoney((income.amount * 52) / 12 / 4.33) * weeksReceived;
-  }
-
-  return month <= monthKey(cutoff) ? income.amount : 0;
+  if (!income || !isIncomeAutoDepositEnabled(income)) return 0;
+  const cutoff = localISODate(date);
+  if (compareMonthToDate(month, date) > 0) return 0;
+  if (compareMonthToDate(month, date) < 0) return plannedRecurringIncomeForMonth(income, month);
+  return recurringPaymentsForMonth(income, month)
+    .filter((payment) => payment.date <= cutoff)
+    .reduce((sum, payment) => sum + payment.amount, 0);
 }
 
 export function cashBalanceUntil(
   state: FinanceState,
   date = new Date(),
-  month = currentMonthKey(),
 ) {
-  const cutoff = date.toISOString().slice(0, 10);
-  const recurringReceived = recurringIncomeReceivedUntil(state.income, date, month);
+  const cutoff = localISODate(date);
+  const cutoffMonth = monthKey(cutoff);
+  const startMonth = state.income?.startsAtMonth ?? currentMonthKey();
+  const recurringReceived = monthKeysBetween(startMonth, cutoffMonth).reduce(
+    (sum, month) => sum + recurringIncomeReceivedUntil(state.income, date, month),
+    0,
+  );
   const extraIncome = state.revenues
-    .filter((revenue) => monthKey(revenue.date) === month && revenue.date <= cutoff)
+    .filter((revenue) => revenue.date <= cutoff)
     .reduce((sum, revenue) => sum + revenue.amount, 0);
   const spent = state.expenses
-    .filter((expense) => monthKey(expense.date) === month && expense.date <= cutoff)
+    .filter((expense) => expense.date <= cutoff)
     .reduce((sum, expense) => sum + expense.amount, 0);
 
   return {
-    month,
+    month: cutoffMonth,
     recurringReceived,
     extraIncome,
     spent,
@@ -399,63 +596,67 @@ export function cashBalanceUntil(
   };
 }
 
+function cashBalanceUntilISO(state: FinanceState, isoDate: string) {
+  return cashBalanceUntil(state, dateFromIso(isoDate));
+}
+
 export function nextIncomePayment(income: Income | null, from = new Date()) {
   if (!income) return null;
+  const today = localISODate(from);
+  const candidates = Array.from({ length: 6 }, (_, offset) => {
+    const monthDate = new Date(from.getFullYear(), from.getMonth() + offset, 1);
+    const key = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, "0")}`;
+    return recurringPaymentsForMonth(income, key);
+  }).flat();
 
-  if (income.period === "biweekly") {
-    const candidates = [0, 1, 2].flatMap((offset) => {
-      const monthDate = new Date(from.getFullYear(), from.getMonth() + offset, 1);
-      return biweeklyPaymentsForMonth(income, monthDate.getFullYear(), monthDate.getMonth() + 1);
-    });
-    const today = from.toISOString().slice(0, 10);
-    return candidates.find((payment) => payment.date > today) ?? null;
-  }
-
-  if (income.period === "weekly") {
-    const next = new Date(from);
-    next.setDate(from.getDate() + ((8 - from.getDay()) % 7 || 7));
-    return {
-      date: next.toISOString().slice(0, 10),
-      amount: normalizeMoney((income.amount * 52) / 12 / 4.33),
-      label: "próximo pagamento semanal",
-    };
-  }
-
-  const next = new Date(from.getFullYear(), from.getMonth() + 1, 1);
-  return {
-    date: next.toISOString().slice(0, 10),
-    amount: normalizeMoney(income.amount),
-    label: "próximo pagamento mensal",
-  };
+  return candidates
+    .filter((payment) => payment.date > today)
+    .sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
 }
 
 export function forecastNextMonth(state: FinanceState, fromMonth = currentMonthKey()) {
   const nextMonth = offsetMonthKey(fromMonth, 1);
-  const current = summarize(state, fromMonth);
   const next = summarize(state, nextMonth);
-  const projectedStartBalance = current.balance;
-  const projectedAvailable = projectedStartBalance + next.income - next.spent;
+  const projectedStartBalance = cashBalanceUntilISO(state, monthEndISO(fromMonth)).balance;
+  const projectedAvailable = projectedStartBalance + next.plannedIncome - next.spent;
 
   return {
     currentMonth: fromMonth,
     nextMonth,
     projectedStartBalance,
     recurringIncome: next.recurringIncome,
+    plannedRecurringIncome: next.plannedRecurringIncome,
     extraIncome: next.extraIncome,
-    projectedIncome: next.income,
+    projectedIncome: next.plannedIncome,
     registeredExpenses: next.spent,
     registeredExpenseCount: next.count,
     projectedAvailable,
   };
 }
 
-export function summarize(state: FinanceState, month = new Date().toISOString().slice(0, 7)) {
-  const recurringIncome = monthlyIncome(state.income);
+export function summarize(state: FinanceState, month = currentMonthKey()) {
+  const cutoff = cutoffForMonth(month);
+  const cutoffDate = dateFromIso(cutoff);
+  const cumulativeCash = cashBalanceUntilISO(state, cutoff);
+  const recurringIncome = recurringIncomeReceivedUntil(state.income, cutoffDate, month);
+  const plannedRecurringIncome = plannedRecurringIncomeForMonth(state.income, month);
   const monthExpenses = state.expenses.filter((e) => monthKey(e.date) === month);
   const monthRevenues = state.revenues.filter((r) => monthKey(r.date) === month);
   const spent = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
   const extraIncome = monthRevenues.reduce((sum, r) => sum + r.amount, 0);
   const income = recurringIncome + extraIncome;
+  const plannedIncome = plannedRecurringIncome + extraIncome;
+  const spendingLimit = state.spendingLimit;
+  const limitUsedPercent = spendingLimit ? Math.round((spent / spendingLimit) * 100) : null;
+  const limitRemaining = spendingLimit != null ? spendingLimit - spent : null;
+  const limitStatus =
+    spendingLimit == null
+      ? "unset"
+      : spent > spendingLimit
+        ? "exceeded"
+        : spent >= spendingLimit * 0.9
+          ? "warning"
+          : "ok";
   const totalAllTime = state.expenses.reduce((sum, e) => sum + e.amount, 0);
   const totalRevenueAllTime = state.revenues.reduce((sum, r) => sum + r.amount, 0);
   const byCategory = Object.entries(
@@ -480,10 +681,21 @@ export function summarize(state: FinanceState, month = new Date().toISOString().
   return {
     month,
     income,
+    plannedIncome,
     recurringIncome,
+    plannedRecurringIncome,
     extraIncome,
     spent,
-    balance: income - spent,
+    spendingLimit,
+    recommendedSpendingLimit: recommendedSpendingLimit(state.income),
+    limitUsedPercent,
+    limitRemaining,
+    limitStatus,
+    balance: cumulativeCash.balance,
+    cumulativeIncome: cumulativeCash.recurringReceived + cumulativeCash.extraIncome,
+    cumulativeRecurringIncome: cumulativeCash.recurringReceived,
+    cumulativeExtraIncome: cumulativeCash.extraIncome,
+    cumulativeSpent: cumulativeCash.spent,
     totalAllTime,
     totalRevenueAllTime,
     count: monthExpenses.length,
@@ -492,7 +704,7 @@ export function summarize(state: FinanceState, month = new Date().toISOString().
     dailyAverage,
     projection,
     dailyBudgetLeft:
-      dayOfMonth < daysInMonth ? (income - spent) / (daysInMonth - dayOfMonth) : income - spent,
+      dayOfMonth < daysInMonth ? cumulativeCash.balance / (daysInMonth - dayOfMonth) : cumulativeCash.balance,
   };
 }
 
@@ -528,11 +740,16 @@ export function buildCSV(state: FinanceState) {
     [],
     ["Renda", incomeLabel(state.income)],
     ["Período da renda", state.income?.period ?? "-"],
-    ["Renda recorrente mensal", s.recurringIncome.toFixed(2)],
+    [
+      "Lançamento automático da renda",
+      isIncomeAutoDepositEnabled(state.income) ? "ativo" : "inativo",
+    ],
+    ["Renda recorrente no mês", s.recurringIncome.toFixed(2)],
     ["Receitas extras no mês", s.extraIncome.toFixed(2)],
-    ["Receita total no mês", s.income.toFixed(2)],
+    ["Limite de gastos", s.spendingLimit?.toFixed(2) ?? "-"],
+    ["Uso do limite", s.limitUsedPercent != null ? `${s.limitUsedPercent}%` : "-"],
     ["Total gasto no mês", s.spent.toFixed(2)],
-    ["Saldo disponível no mês", s.balance.toFixed(2)],
+    ["Saldo disponível acumulado", s.balance.toFixed(2)],
     ["Total gasto (histórico)", s.totalAllTime.toFixed(2)],
     [],
     ["Data", "Descrição", "Categoria", "Valor"],
@@ -561,11 +778,13 @@ export function buildTXT(state: FinanceState) {
     "",
     "RESUMO",
     `  Renda registrada......: ${incomeLabel(state.income)}`,
-    `  Renda recorrente......: ${formatBRL(s.recurringIncome)}`,
+    `  Lançamento automático.: ${isIncomeAutoDepositEnabled(state.income) ? "ativo" : "inativo"}`,
+    `  Renda recorrente mês..: ${formatBRL(s.recurringIncome)}`,
     `  Receitas extras.......: ${formatBRL(s.extraIncome)}`,
-    `  Receita total.........: ${formatBRL(s.income)}`,
+    `  Limite de gastos......: ${s.spendingLimit ? formatBRL(s.spendingLimit) : "não definido"}`,
+    `  Uso do limite.........: ${s.limitUsedPercent != null ? `${s.limitUsedPercent}%` : "-"}`,
     `  Gasto no mês..........: ${formatBRL(s.spent)}`,
-    `  Saldo disponível......: ${formatBRL(s.balance)}`,
+    `  Saldo acumulado.......: ${formatBRL(s.balance)}`,
     `  Total histórico.......: ${formatBRL(s.totalAllTime)}`,
     "",
     "POR CATEGORIA (mês atual)",

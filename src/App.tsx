@@ -35,6 +35,22 @@ export function App() {
 
   useEffect(() => {
     document.title = titles[pathname] ?? "Finance Chat";
+    const canonicalUrl = `${window.location.origin}${pathname}`;
+    let canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    if (!canonical) {
+      canonical = document.createElement("link");
+      canonical.rel = "canonical";
+      document.head.appendChild(canonical);
+    }
+    canonical.href = canonicalUrl;
+
+    let ogUrl = document.querySelector<HTMLMetaElement>('meta[property="og:url"]');
+    if (!ogUrl) {
+      ogUrl = document.createElement("meta");
+      ogUrl.setAttribute("property", "og:url");
+      document.head.appendChild(ogUrl);
+    }
+    ogUrl.content = canonicalUrl;
   }, [pathname]);
 
   if (pathname === "/dashboard") return <DashboardPage />;
