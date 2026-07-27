@@ -133,6 +133,42 @@ const CONFIRM_WORDS = ["sim", "confirmo", "confirmar", "pode apagar", "pode excl
 
 const DENY_WORDS = ["nao", "não", "cancela", "cancelar", "deixa", "desistir", "mantem"];
 
+const GREETING_PHRASES = [
+  "oi",
+  "ola",
+  "olá",
+  "bom dia",
+  "boa tarde",
+  "boa noite",
+  "opa",
+  "e ai",
+  "eae",
+  "fala",
+  "salve",
+];
+
+const CLOSING_PHRASES = [
+  "ok",
+  "okay",
+  "ta certo",
+  "tá certo",
+  "certo",
+  "beleza",
+  "blz",
+  "show",
+  "perfeito",
+  "combinado",
+  "entendi",
+  "valeu",
+  "obrigado",
+  "obrigada",
+  "obg",
+  "ate mais",
+  "até mais",
+  "tchau",
+  "falou",
+];
+
 const CATEGORY_HINTS: Record<string, string[]> = {
   Alimentação: ["almoco", "jantar", "lanche", "mercado", "restaurante", "ifood", "comida", "cafe"],
   Moradia: ["aluguel", "condominio", "casa", "apartamento"],
@@ -195,8 +231,88 @@ function normalize(text: string) {
     .replace(/\p{Diacritic}/gu, "");
 }
 
+function compactMessage(text: string) {
+  return normalize(text)
+    .replace(/[!?.,;:()[\]{}'"`´~^]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function includesAny(text: string, words: string[]) {
   return words.some((word) => text.includes(word));
+}
+
+function isShortConversationalPhrase(text: string, phrases: string[]) {
+  const words = text.split(" ").filter(Boolean);
+  return (
+    words.length <= 4 &&
+    phrases.some((phrase) => text === phrase || text === `${phrase} fin` || text === `${phrase} heyfin`)
+  );
+}
+
+function hasFinancialSignal(text: string, amount: number | null) {
+  return (
+    amount != null ||
+    includesAny(text, [
+      ...EXPENSE_WORDS,
+      ...BASE_INCOME_WORDS,
+      ...EXTRA_REVENUE_WORDS,
+      ...NEXT_PAYMENT_WORDS,
+      ...NEXT_MONTH_WORDS,
+      ...SPENDING_UNTIL_NEXT_MONTH_WORDS,
+      ...LIMIT_WORDS,
+      ...REMOVE_WORDS,
+      "saldo",
+      "disponivel",
+      "receita",
+      "receitas",
+      "despesa",
+      "despesas",
+      "gasto",
+      "gastos",
+      "lancamento",
+      "lancamentos",
+      "projecao",
+      "estimativa",
+      "media",
+      "dashboard",
+    ])
+  );
+}
+
+function answerSmallTalk(text: string, amount: number | null) {
+  const compact = compactMessage(text);
+  if (!compact || hasFinancialSignal(compact, amount)) return null;
+
+  if (isShortConversationalPhrase(compact, GREETING_PHRASES)) {
+    if (compact.startsWith("bom dia")) {
+      return "Bom dia! Estou por aqui para te ajudar a registrar gastos, receitas e acompanhar seu saldo com clareza.";
+    }
+
+    if (compact.startsWith("boa tarde")) {
+      return "Boa tarde! Pode me contar um gasto, uma receita ou perguntar como estão suas finanças.";
+    }
+
+    if (compact.startsWith("boa noite")) {
+      return "Boa noite! Quando quiser, posso registrar seus lançamentos ou consultar seu saldo para você.";
+    }
+
+    return "Oi! Estou por aqui para te ajudar com seu controle financeiro. Pode me contar um gasto, uma receita ou perguntar sobre saldo e projeções.";
+  }
+
+  if (isShortConversationalPhrase(compact, CLOSING_PHRASES)) {
+    if (includesAny(compact, ["obrigado", "obrigada", "obg", "valeu"])) {
+      return "De nada! Sempre que precisar, posso te ajudar a acompanhar receitas, despesas, saldo e projeções.";
+    }
+
+    if (includesAny(compact, ["tchau", "ate mais", "falou"])) {
+      return "Até mais! Quando voltar, continuo te ajudando a manter suas finanças organizadas.";
+    }
+
+    return "Combinado. Quando quiser, é só me chamar para registrar algo ou consultar sua situação financeira.";
+  }
+
+  return null;
 }
 
 function isConfirmation(text: string) {
@@ -597,6 +713,11 @@ export function answerLocally(
 
   if (pendingResponse) {
     return { text: pendingResponse };
+  }
+
+  const smallTalkResponse = answerSmallTalk(text, amount);
+  if (smallTalkResponse) {
+    return { text: smallTalkResponse };
   }
 
   if (includesAny(normalized, EDIT_HELP_WORDS)) {
