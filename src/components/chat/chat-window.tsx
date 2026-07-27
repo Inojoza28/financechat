@@ -112,9 +112,9 @@ export function ChatWindow() {
     <div className="flex h-full min-h-0 flex-col">
       <div className="glass border-b border-border/50">
         <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 py-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+          <div className="min-w-0 space-y-0.5">
+            <div className="flex items-center gap-1.5 leading-none">
+              <p className="text-[11px] font-medium uppercase leading-none tracking-[0.08em] text-muted-foreground">
                 Competência
               </p>
               <Dialog>
@@ -123,7 +123,7 @@ export function ChatWindow() {
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    className="size-6 rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    className="size-5 rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground"
                     aria-label="Entender como funciona a competência"
                   >
                     <Info className="size-3.5" />
@@ -152,7 +152,7 @@ export function ChatWindow() {
                 </DialogContent>
               </Dialog>
             </div>
-            <p className="truncate text-[14px] font-semibold capitalize">
+            <p className="truncate text-[14px] font-semibold leading-tight capitalize">
               {monthLabel(selectedMonth)}
             </p>
           </div>

@@ -69,9 +69,9 @@ function Section({
         <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-secondary text-foreground">
           <Icon className="size-4" />
         </span>
-        <div>
-          <h2 className="text-[15px] font-semibold">{title}</h2>
-          <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{description}</p>
+        <div className="min-w-0 space-y-0.5">
+          <h2 className="text-[15px] font-semibold leading-tight">{title}</h2>
+          <p className="text-[13px] leading-snug text-muted-foreground">{description}</p>
         </div>
       </div>
       <div className="mt-4">{children}</div>
