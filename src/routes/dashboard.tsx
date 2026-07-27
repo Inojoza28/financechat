@@ -1,5 +1,4 @@
-﻿import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -23,25 +22,6 @@ import {
   useFinance,
   type FinanceState,
 } from "@/lib/finance-store";
-
-export const Route = createFileRoute("/dashboard")({
-  head: () => ({
-    meta: [
-      { title: "Dashboard financeiro - Finance Chat" },
-      {
-        name: "description",
-        content:
-          "Veja renda, gastos por categoria, evolução mensal e projeções do seu orçamento em um painel claro e minimalista.",
-      },
-      { property: "og:title", content: "Dashboard financeiro - Finance Chat" },
-      {
-        property: "og:description",
-        content: "Indicadores, gráficos e resumos do seu controle financeiro pessoal.",
-      },
-    ],
-  }),
-  component: DashboardPage,
-});
 
 const COLORS = [
   "var(--chart-1)",
@@ -274,7 +254,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
   );
 }
 
-function DashboardPage() {
+export function DashboardPage() {
   const state = useFinance();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);

@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { MessageCircle, PieChart, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -10,8 +10,29 @@ const links = [
   { to: "/settings", label: "Ajustes", icon: Settings },
 ] as const;
 
+function normalizePath(pathname: string) {
+  if (pathname === "/dashboard" || pathname === "/settings") return pathname;
+  return "/";
+}
+
+function navigate(to: string) {
+  if (window.location.pathname === to) return;
+  window.history.pushState({}, "", to);
+  window.dispatchEvent(new Event("finance-chat:navigate"));
+}
+
 export function AppNav({ title }: { title?: string }) {
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const [pathname, setPathname] = useState(() => normalizePath(window.location.pathname));
+
+  useEffect(() => {
+    const update = () => setPathname(normalizePath(window.location.pathname));
+    window.addEventListener("popstate", update);
+    window.addEventListener("finance-chat:navigate", update);
+    return () => {
+      window.removeEventListener("popstate", update);
+      window.removeEventListener("finance-chat:navigate", update);
+    };
+  }, []);
 
   return (
     <header className="glass sticky top-0 z-30 border-b border-border/50">
@@ -30,10 +51,14 @@ export function AppNav({ title }: { title?: string }) {
           {links.map(({ to, label, icon: Icon }) => {
             const active = pathname === to;
             return (
-              <Link
+              <a
                 key={to}
-                to={to}
+                href={to}
                 aria-label={label}
+                onClick={(event) => {
+                  event.preventDefault();
+                  navigate(to);
+                }}
                 className={cn(
                   "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium transition-all duration-300",
                   active
@@ -43,7 +68,7 @@ export function AppNav({ title }: { title?: string }) {
               >
                 <Icon className="size-4" />
                 <span className="hidden sm:inline">{label}</span>
-              </Link>
+              </a>
             );
           })}
         </nav>

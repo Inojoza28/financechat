@@ -1,5 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
-import {
+﻿import {
   CalendarDays,
   Download,
   FileSpreadsheet,
@@ -38,25 +37,6 @@ import {
   useFinance,
   type IncomePeriod,
 } from "@/lib/finance-store";
-
-export const Route = createFileRoute("/settings")({
-  head: () => ({
-    meta: [
-      { title: "Ajustes - Finance Chat" },
-      {
-        name: "description",
-        content:
-          "Personalize o assistente, ajuste renda e exporte seu historico financeiro em CSV ou TXT.",
-      },
-      { property: "og:title", content: "Ajustes - Finance Chat" },
-      {
-        property: "og:description",
-        content: "Personalize seu assistente financeiro e exporte seus dados quando quiser.",
-      },
-    ],
-  }),
-  component: SettingsPage,
-});
 
 const PERIODS: { value: IncomePeriod; label: string }[] = [
   { value: "monthly", label: "Mensal" },
@@ -370,7 +350,7 @@ function SettingsContent() {
   );
 }
 
-function SettingsPage() {
+export function SettingsPage() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
