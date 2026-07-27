@@ -1,5 +1,5 @@
 ﻿import type { UIMessage } from "ai";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Info } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   Conversation,
@@ -13,6 +13,15 @@ import {
   PromptInputSubmit,
   PromptInputTextarea,
 } from "@/components/ai-elements/prompt-input";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   chatMonthKeys,
   currentMonthKey,
@@ -104,9 +113,45 @@ export function ChatWindow() {
       <div className="glass border-b border-border/50">
         <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
-            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
-              Competência
-            </p>
+            <div className="flex items-center gap-1.5">
+              <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                Competência
+              </p>
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="size-6 rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    aria-label="Entender como funciona a competência"
+                  >
+                    <Info className="size-3.5" />
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="rounded-[22px] sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>Como funciona a competência?</DialogTitle>
+                    <DialogDescription className="pt-1 leading-relaxed">
+                      A competência organiza apenas o histórico visual do chat por mês. Quando um
+                      novo mês começa, a conversa inicia uma nova página de mensagens para manter
+                      tudo mais leve e fácil de consultar.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-3 text-[14px] leading-relaxed text-muted-foreground">
+                    <p>
+                      As mensagens dos meses anteriores continuam salvas e você pode voltar a elas
+                      pelo filtro de competência.
+                    </p>
+                    <p>
+                      O saldo financeiro não é reiniciado ao trocar de mês. Ele permanece
+                      acumulativo, considerando todas as receitas e despesas registradas ao longo do
+                      tempo.
+                    </p>
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
             <p className="truncate text-[14px] font-semibold capitalize">
               {monthLabel(selectedMonth)}
             </p>
