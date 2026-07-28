@@ -162,15 +162,32 @@ const REMOVE_WORDS = [
 
 const EDIT_HELP_WORDS = [
   "editar despesa",
+  "editar uma despesa",
   "editar um gasto",
+  "edito despesa",
+  "edito uma despesa",
+  "edito um gasto",
+  "edito gasto",
   "alterar despesa",
+  "alterar uma despesa",
   "alterar um gasto",
+  "altero despesa",
+  "altero uma despesa",
+  "altero um gasto",
+  "altero gasto",
   "mudar despesa",
+  "mudar uma despesa",
   "mudar um gasto",
   "corrigir despesa",
+  "corrigir uma despesa",
   "corrigir um gasto",
   "posso alterar um gasto",
+  "posso alterar uma despesa",
+  "posso editar um gasto",
+  "posso editar uma despesa",
   "como faco para editar",
+  "como editar uma despesa",
+  "como editar um gasto",
 ];
 
 const CONFIRM_WORDS = ["sim", "confirmo", "confirmar", "pode apagar", "pode excluir", "isso"];
@@ -313,6 +330,15 @@ function isShortConversationalPhrase(text: string, phrases: string[]) {
   );
 }
 
+function isClosingPhrase(text: string) {
+  if (isShortConversationalPhrase(text, CLOSING_PHRASES)) return true;
+
+  const withoutAssistantName = text.replace(/\b(fin|heyfin)\b/g, "").replace(/\s+/g, " ").trim();
+  const words = withoutAssistantName.split(" ").filter(Boolean);
+
+  return words.length <= 6 && includesAny(withoutAssistantName, CLOSING_PHRASES);
+}
+
 function isGreetingPhrase(text: string) {
   if (isShortConversationalPhrase(text, GREETING_PHRASES)) return true;
 
@@ -378,7 +404,7 @@ function answerSmallTalk(text: string, amount: number | null) {
     return "Oi! Estou por aqui para te ajudar com seu controle financeiro. Pode me contar um gasto, uma receita ou perguntar sobre saldo e projeções.";
   }
 
-  if (isShortConversationalPhrase(compact, CLOSING_PHRASES)) {
+  if (isClosingPhrase(compact)) {
     if (includesAny(compact, ["obrigado", "obrigada", "obg", "valeu"])) {
       return "De nada! Sempre que precisar, posso te ajudar a acompanhar receitas, despesas, saldo e projeções.";
     }
@@ -704,6 +730,16 @@ function answerEditHelp() {
   return "Sim. Para editar uma despesa, entre no **Dashboard**, vá até **Últimos lançamentos** e clique na despesa que quer ajustar. Vai abrir um modal onde você pode alterar descrição, valor e categoria, salvar as mudanças ou excluir o lançamento com confirmação.";
 }
 
+function isEditHelpRequest(text: string) {
+  if (includesAny(text, EDIT_HELP_WORDS)) return true;
+
+  const asksHow = includesAny(text, ["como", "onde", "por onde", "de que forma"]);
+  const editVerb = /\b(edito|editar|altero|alterar|mudo|mudar|corrijo|corrigir|ajusto|ajustar)\b/.test(text);
+  const expenseTarget = /\b(despesa|despesas|gasto|gastos|lancamento|lancamentos)\b/.test(text);
+
+  return asksHow && editVerb && expenseTarget;
+}
+
 function answerFixedExpenseHelp(text: string) {
   const amount = parseMoney(text);
   const days = parsePaydays(text);
@@ -859,7 +895,7 @@ export function answerLocally(
     return { text: smallTalkResponse };
   }
 
-  if (includesAny(normalized, EDIT_HELP_WORDS)) {
+  if (isEditHelpRequest(normalized)) {
     return { text: answerEditHelp() };
   }
 
