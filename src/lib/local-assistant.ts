@@ -115,6 +115,22 @@ const SPENDING_UNTIL_NEXT_MONTH_WORDS = [
 
 const LIMIT_WORDS = ["limite", "orcamento", "teto"];
 
+const SAVINGS_GOAL_WORDS = [
+  "juntar dinheiro",
+  "juntar grana",
+  "quero juntar",
+  "pretendo juntar",
+  "guardar dinheiro",
+  "guardar grana",
+  "quero guardar",
+  "pretendo guardar",
+  "economizar",
+  "poupar",
+  "reservar dinheiro",
+  "meta de economia",
+  "meta para juntar",
+];
+
 const FIXED_EXPENSE_WORDS = [
   "despesa fixa",
   "despesas fixas",
@@ -740,6 +756,19 @@ function isEditHelpRequest(text: string) {
   return asksHow && editVerb && expenseTarget;
 }
 
+function isSavingsGoalRequest(text: string) {
+  if (includesAny(text, SAVINGS_GOAL_WORDS)) return true;
+
+  const savingsVerb = /\b(juntar|guardar|economizar|poupar|reservar)\b/.test(text);
+  const financialTarget = /\b(dinheiro|grana|valor|reais|real|r\$|saldo|mes|meta)\b/.test(text);
+
+  return savingsVerb && financialTarget;
+}
+
+function answerSavingsGoalHelp() {
+  return "Entendi. Hoje eu ainda não consigo criar uma meta para juntar dinheiro diretamente pelo chat.\n\nPara calcular isso com mais precisão, vá até o **Dashboard** e use a calculadora no canto inferior direito. Ela pode te ajudar a simular quanto guardar, dividir valores por período e planejar melhor esse objetivo.";
+}
+
 function answerFixedExpenseHelp(text: string) {
   const amount = parseMoney(text);
   const days = parsePaydays(text);
@@ -897,6 +926,10 @@ export function answerLocally(
 
   if (isEditHelpRequest(normalized)) {
     return { text: answerEditHelp() };
+  }
+
+  if (isSavingsGoalRequest(normalized)) {
+    return { text: answerSavingsGoalHelp() };
   }
 
   if (includesAny(normalized, FIXED_EXPENSE_WORDS)) {
