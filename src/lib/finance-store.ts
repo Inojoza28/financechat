@@ -30,6 +30,7 @@ export type Expense = {
   date: string; // ISO date (yyyy-mm-dd)
   createdAt: string;
   adjustment?: boolean;
+  manual?: boolean;
 };
 
 export type FixedExpense = {
@@ -325,6 +326,7 @@ export const financeActions = {
     amount: number;
     category?: string;
     date?: string | null;
+    manual?: boolean;
   }): Expense {
     const expense: Expense = {
       id: uid(),
@@ -333,6 +335,7 @@ export const financeActions = {
       category: normalizeCategory(input.category?.trim()),
       date: input.date || localISODate(),
       createdAt: new Date().toISOString(),
+      manual: input.manual,
     };
     const s = getFinanceState();
     write({ ...s, expenses: [...s.expenses, expense] });
@@ -407,6 +410,7 @@ export const financeActions = {
       date: adjustmentDate,
       createdAt: new Date().toISOString(),
       adjustment: true,
+      manual: true,
     };
     write({ ...s, expenses: [...s.expenses, expense] });
   },

@@ -64,6 +64,7 @@ import {
   type FinanceState,
   type FixedExpense,
 } from "@/lib/finance-store";
+import { Badge } from "@/components/ui/badge";
 
 const COLORS = [
   "var(--chart-1)",
@@ -192,6 +193,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
     limit: "",
   });
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
+  const [expenseModalOpen, setExpenseModalOpen] = useState(false);
   const [fixedExpenseModalOpen, setFixedExpenseModalOpen] = useState(false);
   const [selectedFixedExpense, setSelectedFixedExpense] = useState<FixedExpense | null>(null);
   const [editDescription, setEditDescription] = useState("");
@@ -320,14 +322,24 @@ function DashboardContent({ state }: { state: FinanceState }) {
     setEditAmount(String(expense.amount).replace(".", ","));
     setEditCategory(expense.category);
     setEditDate(expense.date);
+    setExpenseModalOpen(true);
+  };
+
+  const openNewExpense = () => {
+    setSelectedExpense(null);
+    setEditDescription("");
+    setEditAmount("");
+    setEditCategory("Geral");
+    setEditDate(localISODate());
+    setExpenseModalOpen(true);
   };
 
   const closeExpense = () => {
+    setExpenseModalOpen(false);
     setSelectedExpense(null);
   };
 
   const saveExpense = () => {
-    if (!selectedExpense) return;
     const amount = moneyFromInput(editAmount);
     const description = editDescription.trim();
 
@@ -336,18 +348,33 @@ function DashboardContent({ state }: { state: FinanceState }) {
       return;
     }
 
-    if (!Number.isFinite(amount) || amount === 0 || (!selectedExpense.adjustment && amount < 0)) {
+    if (
+      !Number.isFinite(amount) ||
+      amount === 0 ||
+      ((!selectedExpense || !selectedExpense.adjustment) && amount < 0)
+    ) {
       toast.error("Informe um valor válido para a despesa.");
       return;
     }
 
-    financeActions.updateExpense(selectedExpense.id, {
-      description,
-      amount,
-      category: editCategory,
-      date: editDate || selectedExpense.date,
-    });
-    toast.success("Despesa atualizada.");
+    if (selectedExpense) {
+      financeActions.updateExpense(selectedExpense.id, {
+        description,
+        amount,
+        category: editCategory,
+        date: editDate || selectedExpense.date,
+      });
+      toast.success("Despesa atualizada.");
+    } else {
+      financeActions.addExpense({
+        description,
+        amount,
+        category: editCategory,
+        date: editDate || localISODate(),
+        manual: true,
+      });
+      toast.success("Lançamento manual adicionado.");
+    }
     closeExpense();
   };
 
@@ -778,10 +805,23 @@ function DashboardContent({ state }: { state: FinanceState }) {
       </div>
 
       <div className="animate-rise rounded-[18px] border border-border/55 bg-surface p-5 shadow-soft">
-        <p className="text-[13px] font-medium text-muted-foreground">Últimos lançamentos</p>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-[13px] font-medium text-muted-foreground">Últimos lançamentos</p>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="size-7 rounded-full text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
+            onClick={openNewExpense}
+            aria-label="Adicionar lançamento manual"
+            title="Adicionar lançamento manual"
+          >
+            <Plus className="size-3" />
+          </Button>
+        </div>
         {recent.length === 0 ? (
           <p className="mt-4 text-[13px] text-muted-foreground">
-            Registre um gasto pelo chat para ver os lançamentos recentes aqui.
+            Registre um gasto pelo chat ou adicione manualmente pelo botão acima.
           </p>
         ) : (
           <ul className="mt-3 divide-y divide-border/60">
@@ -793,7 +833,16 @@ function DashboardContent({ state }: { state: FinanceState }) {
                   className="flex w-full items-center justify-between gap-3 rounded-xl py-2.5 text-left transition-colors hover:bg-secondary/60 focus-visible:bg-secondary/60"
                 >
                   <div className="min-w-0 px-2">
-                    <p className="truncate text-[14px] font-medium">{e.description}</p>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <p className="truncate text-[14px] font-medium">{e.description}</p>
+                      {e.manual && (
+                        <Badge
+                          className="shrink-0 rounded-full border border-sky-200/70 bg-sky-50 px-2 py-0 text-[10px] font-medium text-sky-700 shadow-none"
+                        >
+                          Manual
+                        </Badge>
+                      )}
+                    </div>
                     <p className="text-[12px] text-muted-foreground">
                       {e.category} · {new Date(`${e.date}T12:00:00`).toLocaleDateString("pt-BR")}
                     </p>
@@ -809,12 +858,14 @@ function DashboardContent({ state }: { state: FinanceState }) {
         )}
       </div>
 
-      <Dialog open={Boolean(selectedExpense)} onOpenChange={(open) => !open && closeExpense()}>
+      <Dialog open={expenseModalOpen} onOpenChange={(open) => !open && closeExpense()}>
         <DialogContent className="rounded-[20px] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Editar despesa</DialogTitle>
+            <DialogTitle>{selectedExpense ? "Editar despesa" : "Novo lançamento"}</DialogTitle>
             <DialogDescription>
-              Ajuste os dados do lançamento. Os resumos e gráficos são atualizados na hora.
+              {selectedExpense
+                ? "Ajuste os dados do lançamento. Os resumos e gráficos são atualizados na hora."
+                : "Adicione uma despesa manualmente. Ela aparecerá nos últimos lançamentos com identificação própria."}
             </DialogDescription>
           </DialogHeader>
 
@@ -879,32 +930,34 @@ function DashboardContent({ state }: { state: FinanceState }) {
 
           <DialogFooter className="flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:space-x-0">
             <div className="order-2 flex w-full gap-2 sm:order-1 sm:w-auto">
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive" className="flex-1 rounded-xl sm:flex-none">
-                    <Trash2 className="size-4" />
-                    Excluir
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="rounded-[20px]">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Excluir esta despesa?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Essa ação remove o lançamento e atualiza saldo, limite, gráficos e projeções.
-                      Não dá para desfazer.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter className="gap-2 sm:space-x-0">
-                    <AlertDialogCancel className="mt-0 rounded-xl">Cancelar</AlertDialogCancel>
-                    <AlertDialogAction
-                      className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                      onClick={deleteSelectedExpense}
-                    >
-                      Excluir definitivamente
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+              {selectedExpense && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" className="flex-1 rounded-xl sm:flex-none">
+                      <Trash2 className="size-4" />
+                      Excluir
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent className="rounded-[20px]">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Excluir esta despesa?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Essa ação remove o lançamento e atualiza saldo, limite, gráficos e projeções.
+                        Não dá para desfazer.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="gap-2 sm:space-x-0">
+                      <AlertDialogCancel className="mt-0 rounded-xl">Cancelar</AlertDialogCancel>
+                      <AlertDialogAction
+                        className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        onClick={deleteSelectedExpense}
+                      >
+                        Excluir definitivamente
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
 
               <Button
                 variant="outline"
@@ -919,7 +972,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
               className="order-1 w-full rounded-xl sm:order-2 sm:w-auto"
               onClick={saveExpense}
             >
-              Salvar alterações
+              {selectedExpense ? "Salvar alterações" : "Adicionar lançamento"}
             </Button>
           </DialogFooter>
         </DialogContent>
