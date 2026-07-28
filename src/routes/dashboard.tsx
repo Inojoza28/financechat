@@ -462,7 +462,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
         </select>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-[18px] border border-border/70 bg-surface px-3 py-2.5 shadow-[0_8px_24px_-18px_oklch(0.24_0.03_260_/_35%)]">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-[18px] border border-border/70 bg-surface px-3 py-2.5 shadow-[0_4px_14px_-12px_oklch(0.24_0.03_260_/_22%)]">
         <div className="flex min-w-0 items-center gap-2">
           <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary text-muted-foreground">
             <LayoutDashboard className="size-4" />
