@@ -268,6 +268,25 @@ export function parseStandaloneExpenseAmount(text: string): number | null {
   return amountOnly.test(trimmed) ? parseMoney(trimmed) : null;
 }
 
+function hasExpenseDescriptionWithAmount(text: string) {
+  const withoutAmount = text
+    .replace(/(?:r\$\s*)?\d{1,3}(?:\.\d{3})*(?:[,.]\d{1,2})?\s*(?:reais?|brl)?/i, "")
+    .trim();
+  const normalized = normalize(withoutAmount);
+  const questionWords = [
+    "quanto",
+    "qual",
+    "como",
+    "quando",
+    "posso",
+    "consigo",
+    "simula",
+    "simule",
+  ];
+
+  return /[a-zA-ZÀ-ÿ]/.test(withoutAmount) && !questionWords.some((word) => normalized.startsWith(word));
+}
+
 function normalize(text: string) {
   return text
     .toLowerCase()
@@ -907,7 +926,10 @@ export function answerLocally(
     if (simulation) return { text: simulation };
   }
 
-  if (standaloneAmount !== null || (amount && includesAny(normalized, EXPENSE_WORDS))) {
+  if (
+    standaloneAmount !== null ||
+    (amount && (includesAny(normalized, EXPENSE_WORDS) || hasExpenseDescriptionWithAmount(text)))
+  ) {
     return { text: registerExpense(text, amount, month) };
   }
 
