@@ -59,6 +59,21 @@ const EXTRA_REVENUE_WORDS = [
   "a mais",
 ];
 
+const ADD_TO_BALANCE_WORDS = [
+  "adicione",
+  "adicionar",
+  "adiciona",
+  "coloque",
+  "colocar",
+  "coloca",
+  "some",
+  "somar",
+  "soma",
+  "deposite",
+  "depositar",
+  "deposita",
+];
+
 const NEXT_PAYMENT_WORDS = [
   "proximo pagamento",
   "proximo recebimento",
@@ -299,6 +314,7 @@ function hasFinancialSignal(text: string, amount: number | null) {
       ...EXPENSE_WORDS,
       ...BASE_INCOME_WORDS,
       ...EXTRA_REVENUE_WORDS,
+      ...ADD_TO_BALANCE_WORDS,
       ...NEXT_PAYMENT_WORDS,
       ...NEXT_MONTH_WORDS,
       ...SPENDING_UNTIL_NEXT_MONTH_WORDS,
@@ -411,13 +427,17 @@ function cleanRevenueDescription(text: string, amount: number) {
   const withoutAmount = text
     .replace(/(?:r\$\s*)?\d{1,3}(?:\.\d{3})*(?:[,.]\d{1,2})?\s*(?:reais?|brl)?/i, "")
     .replace(
-      /\b(eu|ganhei|recebi|entrou|entrada|extra|bonus|bonificacao|comissao|freela|a mais|um|uma|de)\b/gi,
+      /\b(eu|ganhei|recebi|entrou|entrada|extra|bonus|bonificacao|comissao|freela|a mais|adicione|adicionar|adiciona|coloque|colocar|coloca|some|somar|soma|deposite|depositar|deposita|saldo|um|uma|de|ao|no|na)\b/gi,
       "",
     )
     .replace(/\s+/g, " ")
     .trim();
 
   return withoutAmount || `Receita extra de ${formatBRL(amount)}`;
+}
+
+function isAddToBalanceIntent(text: string) {
+  return includesAny(text, ADD_TO_BALANCE_WORDS) && !includesAny(text, EXPENSE_WORDS);
 }
 
 function isoDateDaysAgo(days: number) {
@@ -869,7 +889,7 @@ export function answerLocally(
     return { text: answerNextMonthProjection(month) };
   }
 
-  if (amount && includesAny(normalized, EXTRA_REVENUE_WORDS)) {
+  if (amount && (includesAny(normalized, EXTRA_REVENUE_WORDS) || isAddToBalanceIntent(normalized))) {
     return { text: registerRevenue(text, amount, month) };
   }
 
