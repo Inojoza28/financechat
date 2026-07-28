@@ -12,6 +12,7 @@ import {
 import { CalendarClock, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppNav } from "@/components/app-nav";
+import { FloatingCalculator } from "@/components/floating-calculator";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -820,7 +821,12 @@ export function DashboardPage() {
   return (
     <div className="min-h-[100dvh] bg-background">
       <AppNav title="Dashboard" />
-      {mounted ? <DashboardContent state={state} /> : null}
+      {mounted ? (
+        <>
+          <DashboardContent state={state} />
+          <FloatingCalculator />
+        </>
+      ) : null}
     </div>
   );
 }
