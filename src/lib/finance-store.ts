@@ -29,6 +29,7 @@ export type Expense = {
   category: string;
   date: string; // ISO date (yyyy-mm-dd)
   createdAt: string;
+  adjustment?: boolean;
 };
 
 export type FixedExpense = {
@@ -113,6 +114,11 @@ const normalizeCategory = (category?: string) =>
 const normalizeMoney = (value: number | undefined) =>
   Math.round(Math.abs(Number(value) || 0) * 100) / 100;
 
+const normalizeSignedMoney = (value: number | undefined) => {
+  const numeric = Number(value) || 0;
+  return Math.round(numeric * 100) / 100;
+};
+
 const clampPayday = (value: number | undefined, fallback: number) => {
   const day = Math.trunc(Number(value));
   return Number.isFinite(day) ? Math.min(31, Math.max(1, day)) : fallback;
@@ -151,6 +157,7 @@ function read(): FinanceState {
           : {};
     const expenses = (parsed.expenses ?? []).map((expense) => ({
       ...expense,
+      amount: expense.adjustment ? normalizeSignedMoney(expense.amount) : normalizeMoney(expense.amount),
       category: normalizeCategory(expense.category),
     }));
     const fixedExpenses = (parsed.fixedExpenses ?? []).map((expense) => ({
@@ -383,32 +390,49 @@ export const financeActions = {
         : revenuesOutsideMonth;
     write({ ...s, revenues: nextRevenues });
   },
-  setMonthlyManualExpensesTotal(month: string, amount: number) {
+  addMonthlyExpenseAdjustment(month: string, difference: number) {
     if (!isValidMonthKey(month)) return;
-    const normalized = normalizeMoney(amount);
+    const normalized = normalizeSignedMoney(difference);
+    if (Math.abs(normalized) < 0.01) return;
     const s = getFinanceState();
-    const expensesOutsideMonth = s.expenses.filter((expense) => monthKey(expense.date) !== month);
-    const nextExpenses =
-      normalized > 0
-        ? [
-            ...expensesOutsideMonth,
-            {
-              id: uid(),
-              description: "Gastos avulsos ajustados no Dashboard",
-              amount: normalized,
-              category: "Geral",
-              date: `${month}-01`,
-              createdAt: new Date().toISOString(),
-            },
-          ]
-        : expensesOutsideMonth;
-    write({ ...s, expenses: nextExpenses });
+    const adjustmentDate = month === currentMonthKey() ? localISODate() : `${month}-01`;
+    const expense: Expense = {
+      id: uid(),
+      description:
+        normalized > 0
+          ? "Ajuste manual de gastos no Dashboard"
+          : "Ajuste manual de gastos (redução) no Dashboard",
+      amount: normalized,
+      category: "Geral",
+      date: adjustmentDate,
+      createdAt: new Date().toISOString(),
+      adjustment: true,
+    };
+    write({ ...s, expenses: [...s.expenses, expense] });
   },
   updateExpense(id: string, patch: Partial<Omit<Expense, "id" | "createdAt">>) {
     const s = getFinanceState();
     write({
       ...s,
-      expenses: s.expenses.map((e) => (e.id === id ? { ...e, ...patch } : e)),
+      expenses: s.expenses.map((e) =>
+        e.id === id
+          ? {
+              ...e,
+              ...patch,
+              amount:
+                patch.amount != null
+                  ? e.adjustment
+                    ? normalizeSignedMoney(patch.amount)
+                    : normalizeMoney(patch.amount)
+                  : e.amount,
+              category: patch.category != null ? normalizeCategory(patch.category) : e.category,
+              description:
+                patch.description != null
+                  ? patch.description.trim().slice(0, 120) || e.description
+                  : e.description,
+            }
+          : e,
+      ),
       pendingAction: s.pendingAction?.expenseId === id ? null : s.pendingAction,
     });
   },

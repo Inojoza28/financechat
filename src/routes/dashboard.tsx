@@ -267,13 +267,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
       toast.error("Informe um limite válido ou deixe em branco para remover.");
       return;
     }
-    const nextManualSpent = nextSpent - s.fixedSpent;
-    if (nextManualSpent < 0) {
-      toast.error(
-        `O gasto do mês não pode ser menor que as despesas fixas já consideradas (${formatBRL(s.fixedSpent)}).`,
-      );
-      return;
-    }
+    const spentDifference = Math.round((nextSpent - s.spent) * 100) / 100;
 
     if (nextIncome > 0 || state.income) {
       if (!state.income) {
@@ -313,7 +307,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
     }
 
     financeActions.setMonthlyExtraIncome(selectedMonth, nextExtraIncome);
-    financeActions.setMonthlyManualExpensesTotal(selectedMonth, nextManualSpent);
+    financeActions.addMonthlyExpenseAdjustment(selectedMonth, spentDifference);
     financeActions.setSpendingLimit(nextLimit);
 
     setCardsEditing(false);
@@ -342,7 +336,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
       return;
     }
 
-    if (!Number.isFinite(amount) || amount <= 0) {
+    if (!Number.isFinite(amount) || amount === 0 || (!selectedExpense.adjustment && amount < 0)) {
       toast.error("Informe um valor válido para a despesa.");
       return;
     }
