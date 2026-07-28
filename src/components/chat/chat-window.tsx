@@ -1,6 +1,7 @@
 ﻿import type { UIMessage } from "ai";
 import { ArrowRight, Info } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useStickToBottomContext } from "use-stick-to-bottom";
 import {
   Conversation,
   ConversationContent,
@@ -57,6 +58,20 @@ function TypingIndicator() {
       </span>
     </div>
   );
+}
+
+function ScrollToLatestMessage({ trigger }: { trigger: string }) {
+  const { scrollToBottom } = useStickToBottomContext();
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      scrollToBottom();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [scrollToBottom, trigger]);
+
+  return null;
 }
 
 export function ChatWindow() {
@@ -173,6 +188,7 @@ export function ChatWindow() {
 
       <Conversation className="min-h-0 flex-1">
         <ConversationContent className="mx-auto min-h-full w-full max-w-3xl gap-5 px-4 pt-3 pb-2 sm:pt-5">
+          <ScrollToLatestMessage trigger={`${selectedMonth}:${messages.length}:${status}`} />
           {messages.length === 0 ? (
             <div className="animate-fade-in flex min-h-full flex-1 flex-col items-center justify-center px-2 py-4 text-center sm:py-12">
               <img

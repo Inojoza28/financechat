@@ -42,6 +42,7 @@ import {
   formatBRL,
   incomeLabel,
   lastMonths,
+  localISODate,
   monthKey,
   monthLabel,
   monthlyIncome,
@@ -59,6 +60,12 @@ const COLORS = [
   "var(--chart-4)",
   "var(--chart-5)",
 ];
+
+function isoDateDaysAgo(days: number) {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return localISODate(date);
+}
 
 function moneyFromInput(value: string) {
   return Number(value.replace(/\./g, "").replace(",", "."));
@@ -134,11 +141,12 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const budgetIncome = monthlyIncome(state.income);
   const months = lastMonths(state, 6);
   const monthOptions = useMemo(() => chatMonthKeys(state), [state]);
+  const recentCutoff = isoDateDaysAgo(38);
+  const today = localISODate();
   const recent = state.expenses
-    .filter((expense) => monthKey(expense.date) === selectedMonth)
+    .filter((expense) => expense.date >= recentCutoff && expense.date <= today)
     .slice()
-    .reverse()
-    .slice(0, 8);
+    .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
 
   const openExpense = (expense: Expense) => {
     setSelectedExpense(expense);
@@ -518,7 +526,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
         <p className="text-[13px] font-medium text-muted-foreground">Últimos lançamentos</p>
         {recent.length === 0 ? (
           <p className="mt-4 text-[13px] text-muted-foreground">
-            Registre um gasto pelo chat para ver seus lançamentos aqui.
+            Registre um gasto pelo chat para ver os lançamentos recentes aqui.
           </p>
         ) : (
           <ul className="mt-3 divide-y divide-border/60">

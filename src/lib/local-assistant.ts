@@ -113,6 +113,22 @@ const FIXED_EXPENSE_WORDS = [
   "mensal fixa",
 ];
 
+const LIST_FIXED_EXPENSE_WORDS = [
+  "listar",
+  "liste",
+  "lista",
+  "mostrar",
+  "mostre",
+  "quais",
+  "consultar",
+  "consulta",
+  "ver despesas fixas",
+  "minhas despesas fixas",
+  "despesas fixas cadastradas",
+  "gastos fixos cadastrados",
+  "contas fixas cadastradas",
+];
+
 const REMOVE_WORDS = [
   "apague",
   "apagar",
@@ -660,6 +676,36 @@ function answerFixedExpenseHelp(text: string) {
   return `As despesas fixas são gerenciadas pelo **Dashboard**, na seção **Despesas fixas**. Lá você pode adicionar, editar ou excluir recorrências mensais com segurança.\n\nQuando a data de vencimento chega em cada mês, essa despesa passa a ser considerada automaticamente no saldo, nos limites e nas projeções.${detail}`;
 }
 
+function isFixedExpenseListRequest(text: string) {
+  return includesAny(text, LIST_FIXED_EXPENSE_WORDS);
+}
+
+function listFixedExpenses(month: string) {
+  const fixedExpenses = getFinanceState()
+    .fixedExpenses.slice()
+    .sort((a, b) => a.payday - b.payday || a.description.localeCompare(b.description, "pt-BR"));
+
+  if (!fixedExpenses.length) {
+    return "Você ainda não tem despesas fixas cadastradas.\n\nPara adicionar uma, entre no **Dashboard** e use a seção **Despesas fixas**.";
+  }
+
+  const activeInMonth = fixedExpenses.filter((expense) => month >= expense.startsAtMonth);
+  const totalActive = activeInMonth.reduce((sum, expense) => sum + expense.amount, 0);
+  const intro =
+    activeInMonth.length === fixedExpenses.length
+      ? `Você tem ${fixedExpenses.length} despesa${fixedExpenses.length === 1 ? "" : "s"} fixa${fixedExpenses.length === 1 ? "" : "s"} cadastrada${fixedExpenses.length === 1 ? "" : "s"}.`
+      : `Você tem ${fixedExpenses.length} despesa${fixedExpenses.length === 1 ? "" : "s"} fixa${fixedExpenses.length === 1 ? "" : "s"} cadastrada${fixedExpenses.length === 1 ? "" : "s"}, sendo ${activeInMonth.length} ativa${activeInMonth.length === 1 ? "" : "s"} em ${monthLabel(month)}.`;
+
+  return [
+    `${intro}\n\nTotal ativo em ${monthLabel(month)}: **${formatBRL(totalActive)}**.`,
+    ...fixedExpenses.map((expense) => {
+      const status = month >= expense.startsAtMonth ? "" : `, começa em ${monthLabel(expense.startsAtMonth)}`;
+      return `- **${expense.description}**: ${formatBRL(expense.amount)}, vencimento dia ${String(expense.payday).padStart(2, "0")}${status}`;
+    }),
+    "\nPara editar ou excluir alguma delas, acesse o **Dashboard**, na seção **Despesas fixas**.",
+  ].join("\n");
+}
+
 function answerNextPayment(text: string) {
   const state = getFinanceState();
   const payment = nextIncomePayment(state.income);
@@ -668,9 +714,20 @@ function answerNextPayment(text: string) {
   }
 
   const currentCash = cashBalanceUntil(state);
-  const currentMonth = monthKey(localISODate());
+  const paymentDate = new Date(`${payment.date}T12:00:00`);
+  const projectedCash = cashBalanceUntil(state, paymentDate);
   const registeredCashBalance = currentCash.balance;
-  const afterPayment = registeredCashBalance + payment.amount;
+  const afterPayment = isIncomeAutoDepositEnabled(state.income)
+    ? projectedCash.balance
+    : projectedCash.balance + payment.amount;
+  const deductionsUntilPayment = Math.max(0, projectedCash.spent - currentCash.spent);
+  const extraUntilPayment = Math.max(0, projectedCash.extraIncome - currentCash.extraIncome);
+  const deductionText =
+    deductionsUntilPayment > 0
+      ? ` - ${formatBRL(deductionsUntilPayment)} em despesas previstas até essa data`
+      : "";
+  const extraText =
+    extraUntilPayment > 0 ? ` + ${formatBRL(extraUntilPayment)} em receitas extras previstas` : "";
   const autoText = isIncomeAutoDepositEnabled(state.income)
     ? ""
     : "\n\nObservação: o lançamento automático da renda está desativado. Este cálculo mostra uma projeção após o recebimento, mas o saldo só será atualizado automaticamente se você ativar essa opção em Ajustes.";
@@ -685,7 +742,7 @@ function answerNextPayment(text: string) {
     return `Seu próximo recebimento está previsto para **${dateLabel}**.\n\nValor esperado: **${formatBRL(payment.amount)}**.${autoText}`;
   }
 
-  return `Seu próximo recebimento está previsto para **${dateLabel}**, no valor de **${formatBRL(payment.amount)}**.\n\nSeu saldo disponível acumulado hoje é **${formatBRL(registeredCashBalance)}**. Após esse pagamento, a estimativa fica em **${formatBRL(afterPayment)}**.\n\nCálculo: saldo acumulado atual de ${formatBRL(registeredCashBalance)} + ${formatBRL(payment.amount)} do próximo pagamento.${autoText}`;
+  return `Seu próximo recebimento está previsto para **${dateLabel}**, no valor de **${formatBRL(payment.amount)}**.\n\nSeu saldo disponível acumulado hoje é **${formatBRL(registeredCashBalance)}**. Após esse pagamento, a estimativa fica em **${formatBRL(afterPayment)}**.\n\nCálculo: saldo acumulado atual de ${formatBRL(registeredCashBalance)} + ${formatBRL(payment.amount)} do próximo pagamento${extraText}${deductionText}.\n\nAs despesas previstas incluem despesas fixas com vencimento até a data do pagamento.${autoText}`;
 }
 
 function answerNextMonthProjection(month: string) {
@@ -723,19 +780,21 @@ function simulateSpend(text: string, month: string) {
   return `${verdict}\n\nHoje seu saldo disponível acumulado é **${formatBRL(s.balance)}**.`;
 }
 
-function listRecent(month: string) {
+function listRecent() {
+  const today = localISODate();
+  const cutoff = isoDateDaysAgo(38);
   const expenses = getFinanceState()
-    .expenses.filter((expense) => monthKey(expense.date) === month)
+    .expenses.filter((expense) => expense.date >= cutoff && expense.date <= today)
     .slice()
-    .reverse()
-    .slice(0, 5);
+    .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
 
-  if (!expenses.length) return `Ainda não há despesas registradas em ${monthLabel(month)}.`;
+  if (!expenses.length) return "Ainda não há despesas registradas nos últimos 38 dias.";
 
   return [
-    `Últimos lançamentos de ${monthLabel(month)}:`,
+    "Últimos lançamentos dos últimos 38 dias:",
     ...expenses.map(
-      (expense) => `- ${formatBRL(expense.amount)} em ${expense.category}: ${expense.description}`,
+      (expense) =>
+        `- ${formatBRL(expense.amount)} em ${expense.category}: ${expense.description} (${new Date(`${expense.date}T12:00:00`).toLocaleDateString("pt-BR")})`,
     ),
   ].join("\n");
 }
@@ -766,6 +825,10 @@ export function answerLocally(
   }
 
   if (includesAny(normalized, FIXED_EXPENSE_WORDS)) {
+    if (isFixedExpenseListRequest(normalized)) {
+      return { text: listFixedExpenses(month) };
+    }
+
     return { text: answerFixedExpenseHelp(text) };
   }
 
@@ -859,7 +922,7 @@ export function answerLocally(
     normalized.includes("despesas") ||
     normalized.includes("gastos")
   ) {
-    return { text: listRecent(month) };
+    return { text: listRecent() };
   }
 
   const examples = [
