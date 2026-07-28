@@ -363,6 +363,47 @@ export const financeActions = {
     write({ ...s, revenues: [...s.revenues, revenue] });
     return revenue;
   },
+  setMonthlyExtraIncome(month: string, amount: number) {
+    if (!isValidMonthKey(month)) return;
+    const normalized = normalizeMoney(amount);
+    const s = getFinanceState();
+    const revenuesOutsideMonth = s.revenues.filter((revenue) => monthKey(revenue.date) !== month);
+    const nextRevenues =
+      normalized > 0
+        ? [
+            ...revenuesOutsideMonth,
+            {
+              id: uid(),
+              description: "Receitas extras ajustadas no Dashboard",
+              amount: normalized,
+              date: `${month}-01`,
+              createdAt: new Date().toISOString(),
+            },
+          ]
+        : revenuesOutsideMonth;
+    write({ ...s, revenues: nextRevenues });
+  },
+  setMonthlyManualExpensesTotal(month: string, amount: number) {
+    if (!isValidMonthKey(month)) return;
+    const normalized = normalizeMoney(amount);
+    const s = getFinanceState();
+    const expensesOutsideMonth = s.expenses.filter((expense) => monthKey(expense.date) !== month);
+    const nextExpenses =
+      normalized > 0
+        ? [
+            ...expensesOutsideMonth,
+            {
+              id: uid(),
+              description: "Gastos avulsos ajustados no Dashboard",
+              amount: normalized,
+              category: "Geral",
+              date: `${month}-01`,
+              createdAt: new Date().toISOString(),
+            },
+          ]
+        : expensesOutsideMonth;
+    write({ ...s, expenses: nextExpenses });
+  },
   updateExpense(id: string, patch: Partial<Omit<Expense, "id" | "createdAt">>) {
     const s = getFinanceState();
     write({

@@ -9,7 +9,18 @@ import {
   Tooltip,
   XAxis,
 } from "recharts";
-import { CalendarClock, Pencil, Plus, Trash2 } from "lucide-react";
+import {
+  CalendarClock,
+  Check,
+  Eye,
+  EyeOff,
+  LayoutDashboard,
+  Pencil,
+  PencilLine,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { AppNav } from "@/components/app-nav";
 import { FloatingCalculator } from "@/components/floating-calculator";
@@ -62,6 +73,10 @@ const COLORS = [
   "var(--chart-5)",
 ];
 
+const DASHBOARD_CARDS_HIDDEN_KEY = "heyfin.dashboard.cardsHidden";
+
+type EditableStatKey = "income" | "extraIncome" | "spent" | "limit";
+
 function isoDateDaysAgo(days: number) {
   const date = new Date();
   date.setDate(date.getDate() - days);
@@ -72,16 +87,30 @@ function moneyFromInput(value: string) {
   return Number(value.replace(/\./g, "").replace(",", "."));
 }
 
+function moneyToInput(value: number | null | undefined) {
+  return value != null && Number.isFinite(value) ? String(value).replace(".", ",") : "";
+}
+
 function Stat({
   label,
   value,
   hint,
   accent,
+  hidden,
+  editing,
+  editable,
+  editValue,
+  onEditChange,
 }: {
   label: string;
   value: string;
   hint?: string;
   accent?: "positive" | "negative";
+  hidden?: boolean;
+  editing?: boolean;
+  editable?: boolean;
+  editValue?: string;
+  onEditChange?: (value: string) => void;
 }) {
   const isMoney = value.startsWith("R$ ");
   const [currency, amount] = isMoney ? ["R$", value.replace("R$ ", "")] : ["", value];
@@ -91,33 +120,58 @@ function Stat({
     : `clamp(1.35rem, ${valueLength > 10 ? "5vw" : "5.8vw"}, 1.9rem)`;
 
   return (
-    <div className="animate-rise flex min-h-[138px] min-w-0 flex-col overflow-hidden rounded-[18px] border border-border/55 bg-surface px-3.5 py-4 shadow-soft sm:min-h-[150px] sm:p-5">
-      <p className="text-[12.5px] font-medium leading-snug text-muted-foreground sm:text-[13px]">
-        {label}
-      </p>
-      <p
-        className={`mt-2 flex min-w-0 max-w-full items-baseline gap-1 overflow-hidden whitespace-nowrap font-semibold leading-none tracking-tight tabular-nums sm:gap-1.5 ${
-          accent === "positive"
-            ? "text-success"
-            : accent === "negative"
-              ? "text-destructive"
-              : "text-foreground"
-        }`}
-        style={{ fontSize: valueFontSize }}
-        title={value}
-      >
-        {isMoney ? (
-          <>
-            <span className="shrink-0">{currency}</span>
-            <span className="min-w-0 overflow-hidden text-ellipsis">{amount}</span>
-          </>
-        ) : (
-          <span className="min-w-0 overflow-hidden text-ellipsis">{value}</span>
+    <div
+      className={`animate-rise flex min-h-[138px] min-w-0 flex-col overflow-hidden rounded-[18px] border bg-surface px-3.5 py-4 shadow-soft transition-colors sm:min-h-[150px] sm:p-5 ${
+        editing && editable ? "border-primary/35 ring-2 ring-primary/10" : "border-border/55"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[12.5px] font-medium leading-snug text-muted-foreground sm:text-[13px]">
+          {label}
+        </p>
+        {editing && !editable && (
+          <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+            auto
+          </span>
         )}
-      </p>
+      </div>
+      {editing && editable ? (
+        <Input
+          inputMode="decimal"
+          value={editValue ?? ""}
+          onChange={(event) => onEditChange?.(event.target.value)}
+          className="mt-2 h-10 rounded-xl border-primary/30 bg-background/80 text-[18px] font-semibold tabular-nums"
+          aria-label={`Editar ${label}`}
+        />
+      ) : (
+        <p
+          className={`mt-2 flex min-w-0 max-w-full items-baseline gap-1 overflow-hidden whitespace-nowrap font-semibold leading-none tracking-tight tabular-nums sm:gap-1.5 ${
+            hidden
+              ? "text-muted-foreground"
+              : accent === "positive"
+                ? "text-success"
+                : accent === "negative"
+                  ? "text-destructive"
+                  : "text-foreground"
+          }`}
+          style={{ fontSize: hidden ? "clamp(1.35rem, 5vw, 1.9rem)" : valueFontSize }}
+          title={hidden ? "Conteúdo oculto" : value}
+        >
+          {hidden ? (
+            <span className="tracking-[0.18em]">••••</span>
+          ) : isMoney ? (
+            <>
+              <span className="shrink-0">{currency}</span>
+              <span className="min-w-0 overflow-hidden text-ellipsis">{amount}</span>
+            </>
+          ) : (
+            <span className="min-w-0 overflow-hidden text-ellipsis">{value}</span>
+          )}
+        </p>
+      )}
       {hint && (
         <p className="mt-auto min-w-0 pt-2 text-[12px] leading-snug text-muted-foreground sm:text-[12.5px]">
-          {hint}
+          {hidden ? "Conteúdo oculto" : hint}
         </p>
       )}
     </div>
@@ -126,6 +180,17 @@ function Stat({
 
 function DashboardContent({ state }: { state: FinanceState }) {
   const [selectedMonth, setSelectedMonth] = useState(() => currentMonthKey());
+  const [cardsHidden, setCardsHidden] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(DASHBOARD_CARDS_HIDDEN_KEY) === "true";
+  });
+  const [cardsEditing, setCardsEditing] = useState(false);
+  const [cardEditValues, setCardEditValues] = useState<Record<EditableStatKey, string>>({
+    income: "",
+    extraIncome: "",
+    spent: "",
+    limit: "",
+  });
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [fixedExpenseModalOpen, setFixedExpenseModalOpen] = useState(false);
   const [selectedFixedExpense, setSelectedFixedExpense] = useState<FixedExpense | null>(null);
@@ -148,6 +213,112 @@ function DashboardContent({ state }: { state: FinanceState }) {
     .filter((expense) => expense.date >= recentCutoff && expense.date <= today)
     .slice()
     .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+
+  useEffect(() => {
+    setCardsEditing(false);
+  }, [selectedMonth]);
+
+  const setCardValue = (key: EditableStatKey, value: string) => {
+    setCardEditValues((current) => ({ ...current, [key]: value }));
+  };
+
+  const toggleCardsHidden = () => {
+    setCardsHidden((current) => {
+      const next = !current;
+      window.localStorage.setItem(DASHBOARD_CARDS_HIDDEN_KEY, String(next));
+      return next;
+    });
+  };
+
+  const startCardEditing = () => {
+    setCardEditValues({
+      income: moneyToInput(budgetIncome),
+      extraIncome: moneyToInput(s.extraIncome),
+      spent: moneyToInput(s.spent),
+      limit: moneyToInput(s.spendingLimit),
+    });
+    setCardsEditing(true);
+  };
+
+  const cancelCardEditing = () => {
+    setCardsEditing(false);
+  };
+
+  const saveCardEditing = () => {
+    const nextIncome = moneyFromInput(cardEditValues.income);
+    const nextExtraIncome = moneyFromInput(cardEditValues.extraIncome);
+    const nextSpent = moneyFromInput(cardEditValues.spent);
+    const nextLimit =
+      cardEditValues.limit.trim() === "" ? null : moneyFromInput(cardEditValues.limit);
+
+    if (!Number.isFinite(nextIncome) || nextIncome < 0) {
+      toast.error("Informe uma renda recorrente válida.");
+      return;
+    }
+    if (!Number.isFinite(nextExtraIncome) || nextExtraIncome < 0) {
+      toast.error("Informe um valor válido para receitas extras.");
+      return;
+    }
+    if (!Number.isFinite(nextSpent) || nextSpent < 0) {
+      toast.error("Informe um valor válido para gastos.");
+      return;
+    }
+    if (nextLimit != null && (!Number.isFinite(nextLimit) || nextLimit <= 0)) {
+      toast.error("Informe um limite válido ou deixe em branco para remover.");
+      return;
+    }
+    const nextManualSpent = nextSpent - s.fixedSpent;
+    if (nextManualSpent < 0) {
+      toast.error(
+        `O gasto do mês não pode ser menor que as despesas fixas já consideradas (${formatBRL(s.fixedSpent)}).`,
+      );
+      return;
+    }
+
+    if (nextIncome > 0 || state.income) {
+      if (!state.income) {
+        financeActions.setIncome(nextIncome, "monthly", {
+          autoDeposit: true,
+          payday: 1,
+          startsAtMonth: selectedMonth,
+        });
+      } else if (state.income.period === "biweekly") {
+        const currentFirst = state.income.firstAmount ?? state.income.amount;
+        const currentSecond = state.income.secondAmount ?? 0;
+        const currentTotal = currentFirst + currentSecond;
+        const firstRatio = currentTotal > 0 ? currentFirst / currentTotal : 1;
+        const firstAmount = Math.round(nextIncome * firstRatio * 100) / 100;
+        const secondAmount = Math.max(0, Math.round((nextIncome - firstAmount) * 100) / 100);
+        financeActions.setIncome(nextIncome, "biweekly", {
+          autoDeposit: state.income.autoDeposit,
+          startsAtMonth: state.income.startsAtMonth,
+          firstPayday: state.income.firstPayday,
+          secondPayday: state.income.secondPayday,
+          firstAmount,
+          secondAmount,
+        });
+      } else if (state.income.period === "weekly") {
+        financeActions.setIncome((nextIncome * 12) / 52, "weekly", {
+          autoDeposit: state.income.autoDeposit,
+          startsAtMonth: state.income.startsAtMonth,
+          firstPaymentDate: state.income.firstPaymentDate,
+        });
+      } else {
+        financeActions.setIncome(nextIncome, "monthly", {
+          autoDeposit: state.income.autoDeposit,
+          startsAtMonth: state.income.startsAtMonth,
+          payday: state.income.payday,
+        });
+      }
+    }
+
+    financeActions.setMonthlyExtraIncome(selectedMonth, nextExtraIncome);
+    financeActions.setMonthlyManualExpensesTotal(selectedMonth, nextManualSpent);
+    financeActions.setSpendingLimit(nextLimit);
+
+    setCardsEditing(false);
+    toast.success("Cards atualizados.");
+  };
 
   const openExpense = (expense: Expense) => {
     setSelectedExpense(expense);
@@ -291,27 +462,109 @@ function DashboardContent({ state }: { state: FinanceState }) {
         </select>
       </div>
 
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-[18px] border border-border/70 bg-surface px-3 py-2.5 shadow-soft">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-secondary text-muted-foreground">
+            <LayoutDashboard className="size-4" />
+          </span>
+          <div className="min-w-0 leading-tight">
+            <p className="text-[12px] font-semibold text-foreground">Cards do resumo</p>
+            <p className="truncate text-[11px] leading-tight text-muted-foreground">
+              {cardsEditing ? "Edite os valores liberados." : "Oculte ou edite valores."}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            onClick={toggleCardsHidden}
+            className="size-8 rounded-full"
+            aria-label={cardsHidden ? "Exibir valores dos cards" : "Ocultar valores dos cards"}
+            title={cardsHidden ? "Exibir valores" : "Ocultar valores"}
+          >
+            {cardsHidden ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+          </Button>
+
+          {cardsEditing ? (
+            <>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                onClick={cancelCardEditing}
+                className="size-8 rounded-full"
+                aria-label="Cancelar edição dos cards"
+                title="Cancelar"
+              >
+                <X className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                onClick={saveCardEditing}
+                className="size-8 rounded-full"
+                aria-label="Salvar edição dos cards"
+                title="Salvar"
+              >
+                <Check className="size-4" />
+              </Button>
+            </>
+          ) : (
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              onClick={startCardEditing}
+              className="size-8 rounded-full"
+              aria-label="Editar valores dos cards"
+              title="Editar valores"
+            >
+              <PencilLine className="size-4" />
+            </Button>
+          )}
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 gap-2.5 sm:gap-4">
         <Stat
           label="Renda recorrente"
           value={formatBRL(budgetIncome)}
           hint={state.income ? incomeLabel(state.income) : "Ainda não cadastrada"}
+          hidden={cardsHidden}
+          editing={cardsEditing}
+          editable
+          editValue={cardEditValues.income}
+          onEditChange={(value) => setCardValue("income", value)}
         />
         <Stat
           label="Receitas extras"
           value={formatBRL(s.extraIncome)}
           hint={`${s.revenueCount} registro${s.revenueCount === 1 ? "" : "s"}`}
+          hidden={cardsHidden}
+          editing={cardsEditing}
+          editable
+          editValue={cardEditValues.extraIncome}
+          onEditChange={(value) => setCardValue("extraIncome", value)}
         />
         <Stat
           label="Gasto no mês"
           value={formatBRL(s.spent)}
           hint={`${s.manualExpenseCount} avulso${s.manualExpenseCount === 1 ? "" : "s"} · ${s.fixedExpenseCount} fixo${s.fixedExpenseCount === 1 ? "" : "s"}`}
+          hidden={cardsHidden}
+          editing={cardsEditing}
+          editable
+          editValue={cardEditValues.spent}
+          onEditChange={(value) => setCardValue("spent", value)}
         />
         <Stat
           label="Saldo disponível"
           value={formatBRL(s.balance)}
           hint="acumulado até este período"
           accent={s.balance >= 0 ? "positive" : "negative"}
+          hidden={cardsHidden}
+          editing={cardsEditing}
         />
         <Stat
           label="Limite de gastos"
@@ -322,11 +575,18 @@ function DashboardContent({ state }: { state: FinanceState }) {
               : `Sugestão: ${formatBRL(s.recommendedSpendingLimit)}`
           }
           accent={s.limitStatus === "exceeded" ? "negative" : undefined}
+          hidden={cardsHidden}
+          editing={cardsEditing}
+          editable
+          editValue={cardEditValues.limit}
+          onEditChange={(value) => setCardValue("limit", value)}
         />
         <Stat
           label="Projeção do mês"
           value={formatBRL(s.projection)}
           hint={`Média: ${formatBRL(s.dailyAverage)}/dia`}
+          hidden={cardsHidden}
+          editing={cardsEditing}
         />
       </div>
 
