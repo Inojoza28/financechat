@@ -80,6 +80,7 @@ const COLORS = [
 ];
 
 const DASHBOARD_CARDS_HIDDEN_KEY = "heyfin.dashboard.cardsHidden";
+const RECENT_LAUNCH_PAGE_SIZE = 7;
 
 type EditableStatKey = "income" | "extraIncome" | "spent" | "limit";
 
@@ -234,6 +235,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
   });
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [expenseModalOpen, setExpenseModalOpen] = useState(false);
+  const [visibleLaunchCount, setVisibleLaunchCount] = useState(RECENT_LAUNCH_PAGE_SIZE);
   const [fixedExpenseModalOpen, setFixedExpenseModalOpen] = useState(false);
   const [selectedFixedExpense, setSelectedFixedExpense] = useState<FixedExpense | null>(null);
   const [editDescription, setEditDescription] = useState("");
@@ -293,10 +295,16 @@ function DashboardContent({ state }: { state: FinanceState }) {
   ]
     .slice()
     .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+  const visibleRecentLaunches = recentLaunches.slice(0, visibleLaunchCount);
+  const hasMoreRecentLaunches = visibleLaunchCount < recentLaunches.length;
 
   useEffect(() => {
     setCardsEditing(false);
   }, [selectedMonth]);
+
+  useEffect(() => {
+    setVisibleLaunchCount(RECENT_LAUNCH_PAGE_SIZE);
+  }, [recentLaunches.length]);
 
   const setCardValue = (key: EditableStatKey, value: string) => {
     setCardEditValues((current) => ({ ...current, [key]: value }));
@@ -902,9 +910,10 @@ function DashboardContent({ state }: { state: FinanceState }) {
             Registre um gasto pelo chat ou adicione manualmente pelo botão acima.
           </p>
         ) : (
-          <ul className="mt-3 space-y-1">
-            {recentLaunches.map((entry, index) => {
-              const previous = recentLaunches[index - 1];
+          <div className="mt-3 space-y-3">
+            <ul className="space-y-1">
+            {visibleRecentLaunches.map((entry, index) => {
+              const previous = visibleRecentLaunches[index - 1];
               const showMonth = !previous || monthKey(previous.date) !== monthKey(entry.date);
 
               return (
@@ -1003,7 +1012,22 @@ function DashboardContent({ state }: { state: FinanceState }) {
                 </li>
               );
             })}
-          </ul>
+            </ul>
+            {hasMoreRecentLaunches && (
+              <div className="flex justify-center pt-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 rounded-full border-border/70 bg-background/70 px-4 text-[12.5px] font-medium text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-secondary/55 hover:text-foreground"
+                  onClick={() =>
+                    setVisibleLaunchCount((current) => current + RECENT_LAUNCH_PAGE_SIZE)
+                  }
+                >
+                  Ver mais
+                </Button>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
