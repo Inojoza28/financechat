@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Check, Copy, HeartHandshake, KeyRound, ShieldCheck, Sparkles, Wrench } from "lucide-react";
+import { Check, Copy, HeartHandshake, KeyRound, ShieldCheck, Sparkles, UserRound, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import { AppNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
@@ -90,9 +90,7 @@ export function SupportPage() {
               <KeyRound className="size-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <h2 className="text-[17px] font-semibold text-foreground">
-                Pix para apoiar o HeyFin:
-              </h2>
+              <h2 className="text-[17px] font-semibold text-foreground">Informações do Pix</h2>
               <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">
                 Basta copiar a chave Pix completa e escolher o valor que desejar no seu aplicativo
                 bancário.
@@ -101,6 +99,13 @@ export function SupportPage() {
           </div>
 
           <div className="mt-5 rounded-2xl border border-border/55 bg-background/75 p-3">
+            <div className="mb-3 rounded-2xl border border-border/50 bg-surface px-3.5 py-3">
+              <p className="mb-1 inline-flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                <UserRound className="size-3.5 text-primary" />
+                Nome da transferência
+              </p>
+              <p className="text-[14px] font-semibold text-foreground">Carlos G J I Santos</p>
+            </div>
             <p className="mb-2 inline-flex items-center gap-1.5 text-[12px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
               <KeyRound className="size-3.5 text-primary" />
               Chave Pix
@@ -150,7 +155,7 @@ export function SupportPage() {
           ))}
         </section>
 
-        <footer className="flex items-center justify-center py-8 text-center">
+        <footer className="flex flex-col items-center justify-center gap-2 py-8 text-center">
           <div className="inline-flex items-center gap-2.5 rounded-full border border-border/60 bg-surface px-3.5 py-2 shadow-[0_8px_24px_-26px_oklch(0.24_0.03_260_/_20%)]">
             <img
               src={logo}
@@ -161,6 +166,17 @@ export function SupportPage() {
             />
             <p className="text-[14px] font-semibold text-foreground">HeyFin</p>
           </div>
+          <p className="text-[12.5px] text-muted-foreground">
+            desenvolvido por{" "}
+            <a
+              href="https://www.instagram.com/dev_inojoza_/"
+              target="_blank"
+              rel="noreferrer"
+              className="font-semibold text-primary transition-colors hover:text-primary/80"
+            >
+              Dev Inojoza
+            </a>
+          </p>
         </footer>
       </main>
     </div>
