@@ -293,7 +293,7 @@
 @media (max-width: 768px) {
   input,
   select,
-  textarea {
+  textarea:not(.chat-message-textarea) {
     font-size: 16px;
   }
 }
@@ -302,4 +302,3 @@
   background-color: color-mix(in oklab, var(--surface) 78%, transparent);
   backdrop-filter: saturate(180%) blur(20px);
 }
-
