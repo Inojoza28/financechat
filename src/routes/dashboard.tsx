@@ -52,6 +52,7 @@ import {
   chatMonthKeys,
   currentMonthKey,
   financeActions,
+  fixedExpenseOccurrencesForMonth,
   formatBRL,
   incomeLabel,
   isIncomeAutoDepositEnabled,
@@ -66,6 +67,7 @@ import {
   type Expense,
   type FinanceState,
   type FixedExpense,
+  type Revenue,
 } from "@/lib/finance-store";
 import { Badge } from "@/components/ui/badge";
 
@@ -83,6 +85,7 @@ type EditableStatKey = "income" | "extraIncome" | "spent" | "limit";
 
 type RecentLaunch =
   | ({ kind: "expense" } & Expense)
+  | ({ kind: "revenue" } & Revenue)
   | {
       kind: "income";
       id: string;
@@ -92,6 +95,15 @@ type RecentLaunch =
       createdAt: string;
       category: string;
       paymentLabel: string;
+    }
+  | {
+      kind: "fixedExpense";
+      id: string;
+      description: string;
+      amount: number;
+      date: string;
+      createdAt: string;
+      category: string;
     };
 
 function isoDateDaysAgo(days: number) {
@@ -242,6 +254,9 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const recentExpenses: RecentLaunch[] = state.expenses
     .filter((expense) => expense.date >= recentCutoff && expense.date <= today)
     .map((expense) => ({ ...expense, kind: "expense" }));
+  const recentRevenues: RecentLaunch[] = state.revenues
+    .filter((revenue) => revenue.date >= recentCutoff && revenue.date <= today)
+    .map((revenue) => ({ ...revenue, kind: "revenue" }));
   const recentIncomePayments: RecentLaunch[] =
     state.income && isIncomeAutoDepositEnabled(state.income)
       ? monthKeysInRange(recentCutoff, today)
@@ -258,7 +273,24 @@ function DashboardContent({ state }: { state: FinanceState }) {
             paymentLabel: payment.label,
           }))
       : [];
-  const recentLaunches = [...recentExpenses, ...recentIncomePayments]
+  const recentFixedExpenses: RecentLaunch[] = monthKeysInRange(recentCutoff, today)
+    .flatMap((month) => fixedExpenseOccurrencesForMonth(state.fixedExpenses, month))
+    .filter((expense) => expense.date >= recentCutoff && expense.date <= today)
+    .map((expense) => ({
+      kind: "fixedExpense",
+      id: `fixed-${expense.id}`,
+      description: expense.description,
+      amount: expense.amount,
+      date: expense.date,
+      createdAt: `${expense.date}T12:00:00.000Z`,
+      category: expense.category,
+    }));
+  const recentLaunches = [
+    ...recentExpenses,
+    ...recentRevenues,
+    ...recentIncomePayments,
+    ...recentFixedExpenses,
+  ]
     .slice()
     .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
 
@@ -913,7 +945,25 @@ function DashboardContent({ state }: { state: FinanceState }) {
                         <Pencil className="size-3.5 text-muted-foreground" />
                       </span>
                     </button>
-                  ) : (
+                  ) : entry.kind === "revenue" ? (
+                    <div className="flex w-full items-center justify-between gap-3 rounded-xl bg-emerald-50/40 py-2.5 text-left ring-1 ring-emerald-100/60">
+                      <div className="min-w-0 px-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <p className="truncate text-[14px] font-medium">{entry.description}</p>
+                          <Badge className="shrink-0 rounded-full border border-emerald-200/75 bg-emerald-100/65 px-2 py-0 text-[10px] font-medium text-emerald-700 shadow-none">
+                            Receita extra
+                          </Badge>
+                        </div>
+                        <p className="text-[12px] text-muted-foreground">
+                          Entrada ·{" "}
+                          {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
+                        </p>
+                      </div>
+                      <span className="shrink-0 px-2 text-[14px] font-semibold text-emerald-700 tabular-nums">
+                        + {formatBRL(entry.amount)}
+                      </span>
+                    </div>
+                  ) : entry.kind === "income" ? (
                     <div className="flex w-full items-center justify-between gap-3 rounded-xl bg-emerald-50/55 py-2.5 text-left ring-1 ring-emerald-100/70">
                       <div className="min-w-0 px-2">
                         <div className="flex min-w-0 items-center gap-2">
@@ -929,6 +979,24 @@ function DashboardContent({ state }: { state: FinanceState }) {
                       </div>
                       <span className="shrink-0 px-2 text-[14px] font-semibold text-emerald-700 tabular-nums">
                         + {formatBRL(entry.amount)}
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex w-full items-center justify-between gap-3 rounded-xl bg-rose-50/45 py-2.5 text-left ring-1 ring-rose-100/70">
+                      <div className="min-w-0 px-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <p className="truncate text-[14px] font-medium">{entry.description}</p>
+                          <Badge className="shrink-0 rounded-full border border-rose-200/80 bg-rose-100/75 px-2 py-0 text-[10px] font-medium text-rose-700 shadow-none">
+                            Despesa fixa
+                          </Badge>
+                        </div>
+                        <p className="text-[12px] text-muted-foreground">
+                          {entry.category} ·{" "}
+                          {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
+                        </p>
+                      </div>
+                      <span className="shrink-0 px-2 text-[14px] font-semibold text-rose-700 tabular-nums">
+                        {formatBRL(entry.amount)}
                       </span>
                     </div>
                   )}
