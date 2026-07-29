@@ -54,11 +54,13 @@ import {
   financeActions,
   formatBRL,
   incomeLabel,
+  isIncomeAutoDepositEnabled,
   lastMonths,
   localISODate,
   monthKey,
   monthLabel,
   monthlyIncome,
+  recurringPaymentsForMonth,
   summarize,
   useFinance,
   type Expense,
@@ -79,10 +81,35 @@ const DASHBOARD_CARDS_HIDDEN_KEY = "heyfin.dashboard.cardsHidden";
 
 type EditableStatKey = "income" | "extraIncome" | "spent" | "limit";
 
+type RecentLaunch =
+  | ({ kind: "expense" } & Expense)
+  | {
+      kind: "income";
+      id: string;
+      description: string;
+      amount: number;
+      date: string;
+      createdAt: string;
+      category: string;
+      paymentLabel: string;
+    };
+
 function isoDateDaysAgo(days: number) {
   const date = new Date();
   date.setDate(date.getDate() - days);
   return localISODate(date);
+}
+
+function monthKeysInRange(startIso: string, endIso: string) {
+  const start = new Date(`${monthKey(startIso)}-01T12:00:00`);
+  const end = new Date(`${monthKey(endIso)}-01T12:00:00`);
+  const keys: string[] = [];
+
+  for (const date = new Date(start); date <= end; date.setMonth(date.getMonth() + 1)) {
+    keys.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`);
+  }
+
+  return keys;
 }
 
 function moneyFromInput(value: string) {
@@ -212,8 +239,26 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const monthOptions = useMemo(() => chatMonthKeys(state), [state]);
   const recentCutoff = isoDateDaysAgo(38);
   const today = localISODate();
-  const recent = state.expenses
+  const recentExpenses: RecentLaunch[] = state.expenses
     .filter((expense) => expense.date >= recentCutoff && expense.date <= today)
+    .map((expense) => ({ ...expense, kind: "expense" }));
+  const recentIncomePayments: RecentLaunch[] =
+    state.income && isIncomeAutoDepositEnabled(state.income)
+      ? monthKeysInRange(recentCutoff, today)
+          .flatMap((month) => recurringPaymentsForMonth(state.income, month))
+          .filter((payment) => payment.date >= recentCutoff && payment.date <= today)
+          .map((payment) => ({
+            kind: "income",
+            id: `income-${payment.date}-${payment.label}-${payment.amount}`,
+            description: "Salário recebido",
+            amount: payment.amount,
+            date: payment.date,
+            createdAt: `${payment.date}T12:00:00.000Z`,
+            category: "Renda automática",
+            paymentLabel: payment.label,
+          }))
+      : [];
+  const recentLaunches = [...recentExpenses, ...recentIncomePayments]
     .slice()
     .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
 
@@ -820,41 +865,76 @@ function DashboardContent({ state }: { state: FinanceState }) {
             <Plus className="size-3" />
           </Button>
         </div>
-        {recent.length === 0 ? (
+        {recentLaunches.length === 0 ? (
           <p className="mt-4 text-[13px] text-muted-foreground">
             Registre um gasto pelo chat ou adicione manualmente pelo botão acima.
           </p>
         ) : (
-          <ul className="mt-3 divide-y divide-border/60">
-            {recent.map((e) => (
-              <li key={e.id}>
-                <button
-                  type="button"
-                  onClick={() => openExpense(e)}
-                  className="flex w-full items-center justify-between gap-3 rounded-xl py-2.5 text-left transition-colors hover:bg-secondary/60 focus-visible:bg-secondary/60"
-                >
-                  <div className="min-w-0 px-2">
-                    <div className="flex min-w-0 items-center gap-2">
-                      <p className="truncate text-[14px] font-medium">{e.description}</p>
-                      {e.manual && (
-                        <Badge
-                          className="shrink-0 rounded-full border border-sky-200/70 bg-sky-50 px-2 py-0 text-[10px] font-medium text-sky-700 shadow-none"
-                        >
-                          Manual
-                        </Badge>
-                      )}
+          <ul className="mt-3 space-y-1">
+            {recentLaunches.map((entry, index) => {
+              const previous = recentLaunches[index - 1];
+              const showMonth = !previous || monthKey(previous.date) !== monthKey(entry.date);
+
+              return (
+                <li key={`${entry.kind}-${entry.id}`}>
+                  {showMonth && (
+                    <div className="flex items-center gap-2 px-2 pb-1 pt-2 first:pt-0">
+                      <span className="shrink-0 text-[10.5px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
+                        {monthLabel(monthKey(entry.date))}
+                      </span>
+                      <span className="h-px flex-1 bg-border/55" />
                     </div>
-                    <p className="text-[12px] text-muted-foreground">
-                      {e.category} · {new Date(`${e.date}T12:00:00`).toLocaleDateString("pt-BR")}
-                    </p>
-                  </div>
-                  <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold tabular-nums">
-                    {formatBRL(e.amount)}
-                    <Pencil className="size-3.5 text-muted-foreground" />
-                  </span>
-                </button>
-              </li>
-            ))}
+                  )}
+
+                  {entry.kind === "expense" ? (
+                    <button
+                      type="button"
+                      onClick={() => openExpense(entry)}
+                      className="flex w-full items-center justify-between gap-3 rounded-xl py-2.5 text-left transition-colors hover:bg-secondary/60 focus-visible:bg-secondary/60"
+                    >
+                      <div className="min-w-0 px-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <p className="truncate text-[14px] font-medium">{entry.description}</p>
+                          {entry.manual && (
+                            <Badge
+                              className="shrink-0 rounded-full border border-sky-200/70 bg-sky-50 px-2 py-0 text-[10px] font-medium text-sky-700 shadow-none"
+                            >
+                              Manual
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-[12px] text-muted-foreground">
+                          {entry.category} ·{" "}
+                          {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
+                        </p>
+                      </div>
+                      <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold tabular-nums">
+                        {formatBRL(entry.amount)}
+                        <Pencil className="size-3.5 text-muted-foreground" />
+                      </span>
+                    </button>
+                  ) : (
+                    <div className="flex w-full items-center justify-between gap-3 rounded-xl bg-emerald-50/55 py-2.5 text-left ring-1 ring-emerald-100/70">
+                      <div className="min-w-0 px-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <p className="truncate text-[14px] font-medium">{entry.description}</p>
+                          <Badge className="shrink-0 rounded-full border border-emerald-200/80 bg-emerald-100/80 px-2 py-0 text-[10px] font-medium text-emerald-700 shadow-none">
+                            Salário
+                          </Badge>
+                        </div>
+                        <p className="text-[12px] text-muted-foreground">
+                          {entry.category} ·{" "}
+                          {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
+                        </p>
+                      </div>
+                      <span className="shrink-0 px-2 text-[14px] font-semibold text-emerald-700 tabular-nums">
+                        + {formatBRL(entry.amount)}
+                      </span>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
