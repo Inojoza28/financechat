@@ -248,6 +248,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const [incomeEntryDate, setIncomeEntryDate] = useState("");
   const [fixedDescription, setFixedDescription] = useState("");
   const [fixedAmount, setFixedAmount] = useState("");
+  const [fixedOccurrenceAmount, setFixedOccurrenceAmount] = useState("");
   const [fixedCategory, setFixedCategory] = useState<string>("Contas");
   const [fixedPayday, setFixedPayday] = useState("1");
   const [fixedStartsAtMonth, setFixedStartsAtMonth] = useState(currentMonthKey());
@@ -284,6 +285,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
         state.fixedExpenses,
         month,
         state.deletedFixedExpenseOccurrences,
+        state.fixedExpenseOccurrenceOverrides,
       ),
     )
     .filter((expense) => expense.date >= recentCutoff && expense.date <= today)
@@ -618,11 +620,38 @@ function DashboardContent({ state }: { state: FinanceState }) {
     closeFixedExpense();
   };
 
+  const openFixedOccurrence = (entry: Extract<RecentLaunch, { kind: "fixedExpense" }>) => {
+    setSelectedFixedOccurrence(entry);
+    setFixedOccurrenceAmount(String(entry.amount).replace(".", ","));
+  };
+
+  const closeFixedOccurrence = () => {
+    setSelectedFixedOccurrence(null);
+    setFixedOccurrenceAmount("");
+  };
+
+  const saveFixedOccurrence = () => {
+    if (!selectedFixedOccurrence) return;
+
+    const amount = moneyFromInput(fixedOccurrenceAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error("Informe um valor válido para este débito.");
+      return;
+    }
+
+    financeActions.updateFixedExpenseOccurrenceAmount(
+      selectedFixedOccurrence.occurrenceId,
+      amount,
+    );
+    toast.success("Valor do débito atualizado.");
+    closeFixedOccurrence();
+  };
+
   const deleteFixedOccurrence = () => {
     if (!selectedFixedOccurrence) return;
     financeActions.removeFixedExpenseOccurrence(selectedFixedOccurrence.occurrenceId);
     toast.success("Débito de despesa fixa removido do histórico.");
-    setSelectedFixedOccurrence(null);
+    closeFixedOccurrence();
   };
 
   return (
@@ -1087,7 +1116,11 @@ function DashboardContent({ state }: { state: FinanceState }) {
                       </span>
                     </button>
                   ) : (
-                    <div className="flex w-full items-center justify-between gap-3 rounded-xl bg-rose-50/45 py-2.5 text-left ring-1 ring-rose-100/70">
+                    <button
+                      type="button"
+                      onClick={() => openFixedOccurrence(entry)}
+                      className="flex w-full items-center justify-between gap-3 rounded-xl bg-rose-50/45 py-2.5 text-left ring-1 ring-rose-100/70 transition-colors hover:bg-rose-50/70 focus-visible:bg-rose-50/70"
+                    >
                       <div className="min-w-0 px-2">
                         <div className="flex min-w-0 items-center gap-2">
                           <p className="truncate text-[14px] font-medium">{entry.description}</p>
@@ -1103,50 +1136,11 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
                         </p>
                       </div>
-                      <div className="flex shrink-0 items-center gap-1.5 px-2">
-                        <span className="text-[14px] font-semibold text-rose-700 tabular-nums">
-                          {formatBRL(entry.amount)}
-                        </span>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              className="size-7 rounded-full text-rose-600/70 hover:bg-rose-100/70 hover:text-rose-700"
-                              aria-label="Excluir débito desta despesa fixa"
-                              title="Excluir este débito"
-                              onClick={() => setSelectedFixedOccurrence(entry)}
-                            >
-                              <Trash2 className="size-3.5" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent className="rounded-[20px]">
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Excluir este débito?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                Isso remove apenas este lançamento de despesa fixa do histórico e
-                                devolve o valor ao saldo. A recorrência cadastrada não será alterada.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter className="gap-2 sm:space-x-0">
-                              <AlertDialogCancel
-                                className="mt-0 rounded-xl"
-                                onClick={() => setSelectedFixedOccurrence(null)}
-                              >
-                                Cancelar
-                              </AlertDialogCancel>
-                              <AlertDialogAction
-                                className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                                onClick={deleteFixedOccurrence}
-                              >
-                                Excluir débito
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      </div>
-                    </div>
+                      <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold text-rose-700 tabular-nums">
+                        {formatBRL(entry.amount)}
+                        <Pencil className="size-3.5 text-rose-600/70" />
+                      </span>
+                    </button>
                   )}
                 </li>
               );
@@ -1399,6 +1393,110 @@ function DashboardContent({ state }: { state: FinanceState }) {
               onClick={saveIncomeEntry}
             >
               Salvar alterações
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(selectedFixedOccurrence)}
+        onOpenChange={(open) => !open && closeFixedOccurrence()}
+      >
+        <DialogContent className="rounded-[20px] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Gerenciar débito fixo</DialogTitle>
+            <DialogDescription>
+              Ajuste apenas este lançamento de despesa fixa. A recorrência original e os outros
+              meses não serão modificados.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedFixedOccurrence && (
+            <div className="grid gap-4">
+              <div className="rounded-2xl border border-rose-100 bg-rose-50/45 px-3 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-[14px] font-semibold">
+                      {selectedFixedOccurrence.description}
+                    </p>
+                    <p className="mt-1 text-[12px] text-muted-foreground">
+                      {selectedFixedOccurrence.category} ·{" "}
+                      {new Date(`${selectedFixedOccurrence.date}T12:00:00`).toLocaleDateString(
+                        "pt-BR",
+                      )}
+                    </p>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className="shrink-0 rounded-full border border-rose-200/80 bg-rose-100/75 px-2 py-0 text-[10px] font-medium text-rose-700 shadow-none"
+                  >
+                    Despesa fixa
+                  </Badge>
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="fixed-occurrence-amount" className="text-[13px]">
+                  Valor deste débito
+                </Label>
+                <Input
+                  id="fixed-occurrence-amount"
+                  inputMode="decimal"
+                  value={fixedOccurrenceAmount}
+                  onChange={(event) => setFixedOccurrenceAmount(event.target.value)}
+                  placeholder="120,00"
+                  className="mt-1.5 rounded-xl"
+                />
+                <p className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">
+                  Essa alteração vale somente para este lançamento em Últimos lançamentos.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:space-x-0">
+            <div className="order-2 flex w-full gap-2 sm:order-1 sm:w-auto">
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive" className="flex-1 rounded-xl sm:flex-none">
+                    <Trash2 className="size-4" />
+                    Excluir débito
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent className="rounded-[20px]">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Excluir este débito?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Isso remove apenas este lançamento do histórico e devolve o valor ao saldo. A
+                      despesa fixa recorrente não será alterada.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter className="gap-2 sm:space-x-0">
+                    <AlertDialogCancel className="mt-0 rounded-xl">Cancelar</AlertDialogCancel>
+                    <AlertDialogAction
+                      className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      onClick={deleteFixedOccurrence}
+                    >
+                      Excluir débito
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+
+              <Button
+                variant="outline"
+                className="flex-1 rounded-xl sm:flex-none"
+                onClick={closeFixedOccurrence}
+              >
+                Cancelar
+              </Button>
+            </div>
+
+            <Button
+              className="order-1 w-full rounded-xl sm:order-2 sm:w-auto"
+              onClick={saveFixedOccurrence}
+            >
+              Salvar valor
             </Button>
           </DialogFooter>
         </DialogContent>
