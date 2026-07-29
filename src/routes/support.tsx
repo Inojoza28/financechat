@@ -10,18 +10,21 @@ const logo = "/assets/imgs/logo.png";
 const highlights = [
   {
     icon: Wrench,
+    eyebrow: "Base do projeto",
     title: "Manutenção",
-    text: "Ajuda a manter o HeyFin funcionando com cuidado, estabilidade e atenção aos detalhes.",
+    text: "Ajuda a manter o HeyFin estável, rápido e disponível no dia a dia.",
   },
   {
     icon: Sparkles,
+    eyebrow: "Melhorias reais",
     title: "Evolução",
-    text: "Fortalece o desenvolvimento de melhorias úteis para o controle financeiro do dia a dia.",
+    text: "Fortalece novas funcionalidades e ajustes que deixam o app mais útil.",
   },
   {
     icon: ShieldCheck,
+    eyebrow: "Valor livre",
     title: "Voluntário",
-    text: "Você contribui somente se quiser, no valor que fizer sentido para o seu momento.",
+    text: "Você contribui apenas se quiser, com o valor que fizer sentido.",
   },
 ];
 
@@ -139,18 +142,28 @@ export function SupportPage() {
         </section>
 
         <section className="mt-4 grid gap-3 sm:grid-cols-3">
-          {highlights.map(({ icon: Icon, title, text }) => (
+          {highlights.map(({ icon: Icon, eyebrow, title, text }) => (
             <div
               key={title}
-              className="animate-rise rounded-[18px] border border-border/55 border-t-2 border-t-primary/50 bg-surface p-4 shadow-[0_8px_24px_-26px_oklch(0.24_0.03_260_/_18%)]"
+              className="animate-rise rounded-[20px] border border-border/65 bg-surface p-4 shadow-[0_14px_38px_-34px_oklch(0.22_0.03_260_/_28%)] transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-[0_18px_42px_-34px_oklch(0.22_0.03_260_/_34%)] sm:min-h-[168px]"
             >
-              <div className="flex items-center gap-3">
-                <span className="flex size-9 shrink-0 items-center justify-center rounded-2xl bg-secondary/70 text-primary">
-                  <Icon className="size-4" />
-                </span>
-                <p className="text-[14px] font-semibold text-foreground">{title}</p>
+              <div className="flex h-full flex-col gap-4">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="flex size-11 shrink-0 items-center justify-center rounded-[16px] border border-primary/12 bg-primary/[0.055] text-primary shadow-[inset_0_1px_0_oklch(1_0_0_/_70%)]">
+                    <Icon className="size-[19px]" />
+                  </span>
+                  <span className="rounded-full border border-primary/16 bg-primary/[0.055] px-2.5 py-1 text-[11px] font-medium text-primary">
+                    {eyebrow}
+                  </span>
+                </div>
+
+                <div className="min-w-0">
+                  <h3 className="text-[15px] font-semibold leading-tight text-foreground">{title}</h3>
+                  <p className="mt-2 text-[13px] leading-relaxed text-muted-foreground">{text}</p>
+                </div>
+
+                <div className="mt-auto h-1 w-9 rounded-full bg-primary/18" aria-hidden="true" />
               </div>
-              <p className="mt-2.5 text-[13px] leading-relaxed text-muted-foreground">{text}</p>
             </div>
           ))}
         </section>
