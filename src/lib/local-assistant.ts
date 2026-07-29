@@ -16,6 +16,7 @@
   type IncomePeriod,
   type Revenue,
 } from "@/lib/finance-store";
+import { normalizeSpokenMoneyText } from "@/lib/spoken-money";
 import { SUPPORT_COMMAND } from "@/lib/support";
 
 type AssistantResult = {
@@ -913,6 +914,7 @@ export function answerLocally(
   month: string,
   context?: ConversationContext,
 ): AssistantResult {
+  text = normalizeSpokenMoneyText(text);
   const normalized = normalize(text);
   const recentText = normalize(recentConversationText(context));
   const standaloneAmount = parseStandaloneExpenseAmount(text);

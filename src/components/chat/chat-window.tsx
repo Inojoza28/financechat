@@ -45,6 +45,7 @@ import {
   useFinance,
 } from "@/lib/finance-store";
 import { answerLocally, buildTextMessage } from "@/lib/local-assistant";
+import { normalizeSpokenMoneyText } from "@/lib/spoken-money";
 import { MASKED_PIX_KEY, PIX_KEY, SUPPORT_COMMAND } from "@/lib/support";
 
 const logo = "/assets/imgs/logo.png";
@@ -127,6 +128,7 @@ export function ChatWindow() {
   const voiceBaseInputRef = useRef("");
   const voiceFinalTranscriptRef = useRef("");
   const voiceReceivedTranscriptRef = useRef(false);
+  const voiceSessionIdRef = useRef(0);
   const [input, setInput] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(() => currentMonthKey());
   const [status, setStatus] = useState<"ready" | "submitted">("ready");
@@ -161,8 +163,28 @@ export function ChatWindow() {
         : "";
 
   const send = (text: string) => {
-    const trimmed = text.trim();
+    const trimmed = normalizeSpokenMoneyText(text.trim());
     if (!trimmed || busy) return;
+
+    if (voiceStatus !== "idle" || recognitionRef.current) {
+      voiceSessionIdRef.current += 1;
+      const recognition = recognitionRef.current;
+      recognitionRef.current = null;
+      if (recognition) {
+        recognition.onresult = null;
+        recognition.onerror = null;
+        recognition.onend = null;
+        try {
+          recognition.stop();
+        } catch {
+          recognition.abort();
+        }
+      }
+      voiceBaseInputRef.current = "";
+      voiceFinalTranscriptRef.current = "";
+      voiceReceivedTranscriptRef.current = false;
+      setVoiceStatus("idle");
+    }
 
     const contextMessages = messages;
     const userMessage = buildTextMessage("user", trimmed) as UIMessage;
@@ -220,6 +242,8 @@ export function ChatWindow() {
     }
 
     const recognition = new SpeechRecognition();
+    const sessionId = voiceSessionIdRef.current + 1;
+    voiceSessionIdRef.current = sessionId;
     recognitionRef.current = recognition;
     recognition.lang = "pt-BR";
     recognition.interimResults = true;
@@ -231,10 +255,13 @@ export function ChatWindow() {
     voiceReceivedTranscriptRef.current = false;
 
     recognition.onstart = () => {
+      if (voiceSessionIdRef.current !== sessionId) return;
       setVoiceStatus("recording");
     };
 
     recognition.onresult = (event) => {
+      if (voiceSessionIdRef.current !== sessionId) return;
+
       let finalTranscript = voiceFinalTranscriptRef.current;
       let interimTranscript = "";
       const startIndex = event.resultIndex ?? 0;
@@ -264,10 +291,12 @@ export function ChatWindow() {
         .replace(/\s+/g, " ")
         .trim();
 
-      setInput(nextInput);
+      setInput(normalizeSpokenMoneyText(nextInput));
     };
 
     recognition.onerror = (event) => {
+      if (voiceSessionIdRef.current !== sessionId) return;
+
       const blocked = event.error === "not-allowed" || event.error === "service-not-allowed";
       if (event.error !== "no-speech") {
         toast.error(blocked ? "Permita o uso do microfone para transcrever." : "Não consegui captar o áudio.");
@@ -276,6 +305,8 @@ export function ChatWindow() {
     };
 
     recognition.onend = () => {
+      if (voiceSessionIdRef.current !== sessionId) return;
+
       recognitionRef.current = null;
       setVoiceStatus("idle");
       if (voiceReceivedTranscriptRef.current) {
@@ -456,7 +487,7 @@ export function ChatWindow() {
       </Conversation>
 
       <div className="glass border-t border-border/50">
-        <div className="mx-auto w-full max-w-3xl px-4 pt-3 pb-4">
+        <div className="mx-auto w-full max-w-3xl px-4 pt-3 pb-5 sm:pb-4">
           {state.income && (
             <p className="mb-2 text-center text-[12px] text-muted-foreground">
               Saldo acumulado até {monthLabel(selectedMonth)}:{" "}
