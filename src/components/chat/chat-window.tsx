@@ -59,8 +59,13 @@ const SUGGESTIONS = [
 const FALLBACK_RESPONSE =
   "Desculpe, não consegui entender ou responder essa solicitação. Posso ajudar você a registrar receitas e despesas, consultar seu saldo, fazer projeções financeiras, mostrar seus gastos e responder dúvidas relacionadas ao seu controle financeiro. Tente reformular a pergunta com um valor, período ou objetivo financeiro.";
 
+type SpeechRecognitionResult = ArrayLike<{ transcript: string }> & {
+  isFinal?: boolean;
+};
+
 type SpeechRecognitionResultLike = {
-  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+  results: ArrayLike<SpeechRecognitionResult>;
+  resultIndex?: number;
 };
 
 type SpeechRecognitionErrorLike = {
@@ -119,6 +124,9 @@ function ScrollToLatestMessage({ trigger }: { trigger: string }) {
 export function ChatWindow() {
   const state = useFinance();
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const voiceBaseInputRef = useRef("");
+  const voiceFinalTranscriptRef = useRef("");
+  const voiceReceivedTranscriptRef = useRef(false);
   const [input, setInput] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(() => currentMonthKey());
   const [status, setStatus] = useState<"ready" | "submitted">("ready");
@@ -145,6 +153,12 @@ export function ChatWindow() {
 
   const busy = status === "submitted";
   const summary = summarize(state, selectedMonth);
+  const voiceFeedbackLabel =
+    voiceStatus === "recording"
+      ? "Ouvindo..."
+      : voiceStatus === "processing"
+        ? "Finalizando..."
+        : "";
 
   const send = (text: string) => {
     const trimmed = text.trim();
@@ -208,42 +222,65 @@ export function ChatWindow() {
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
     recognition.lang = "pt-BR";
-    recognition.interimResults = false;
-    recognition.continuous = false;
+    recognition.interimResults = true;
+    recognition.continuous = true;
     recognition.maxAlternatives = 1;
 
-    let receivedTranscript = false;
+    voiceBaseInputRef.current = input.trim();
+    voiceFinalTranscriptRef.current = "";
+    voiceReceivedTranscriptRef.current = false;
 
     recognition.onstart = () => {
       setVoiceStatus("recording");
     };
 
     recognition.onresult = (event) => {
-      receivedTranscript = true;
-      const transcript = Array.from(event.results)
-        .map((result) => result[0]?.transcript ?? "")
-        .join(" ")
-        .trim();
+      let finalTranscript = voiceFinalTranscriptRef.current;
+      let interimTranscript = "";
+      const startIndex = event.resultIndex ?? 0;
 
-      if (!transcript) {
-        toast.error("Não consegui transcrever o áudio.");
-        return;
+      for (let index = startIndex; index < event.results.length; index += 1) {
+        const result = event.results[index];
+        const transcript = result[0]?.transcript?.trim() ?? "";
+        if (!transcript) continue;
+
+        voiceReceivedTranscriptRef.current = true;
+
+        if ("isFinal" in result && result.isFinal) {
+          finalTranscript = [finalTranscript, transcript].filter(Boolean).join(" ");
+        } else {
+          interimTranscript = [interimTranscript, transcript].filter(Boolean).join(" ");
+        }
       }
 
-      setInput((current) => [current.trim(), transcript].filter(Boolean).join(" "));
-      toast.success("Transcrição concluída.");
+      voiceFinalTranscriptRef.current = finalTranscript.trim();
+      const nextInput = [
+        voiceBaseInputRef.current,
+        voiceFinalTranscriptRef.current,
+        interimTranscript.trim(),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      setInput(nextInput);
     };
 
     recognition.onerror = (event) => {
       const blocked = event.error === "not-allowed" || event.error === "service-not-allowed";
-      toast.error(blocked ? "Permita o uso do microfone para transcrever." : "Não consegui captar o áudio.");
+      if (event.error !== "no-speech") {
+        toast.error(blocked ? "Permita o uso do microfone para transcrever." : "Não consegui captar o áudio.");
+      }
       setVoiceStatus("idle");
     };
 
     recognition.onend = () => {
       recognitionRef.current = null;
       setVoiceStatus("idle");
-      if (!receivedTranscript) return;
+      if (voiceReceivedTranscriptRef.current) {
+        toast.success("Transcrição finalizada. Você pode revisar antes de enviar.");
+      }
     };
 
     try {
@@ -374,24 +411,32 @@ export function ChatWindow() {
                           <KeyRound className="size-3.5 text-primary" />
                           Chave Pix
                         </p>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="h-auto w-full justify-between gap-2 rounded-2xl border-primary/15 bg-surface px-3 py-2.5 text-left shadow-[0_8px_22px_-20px_oklch(0.25_0.03_260_/_30%)] hover:border-primary/25 hover:bg-background"
-                          onClick={() => copyPixKey(message.id)}
-                          aria-label="Copiar chave Pix completa"
-                        >
-                          <code className="min-w-0 flex-1 break-all text-[12.5px] font-medium leading-relaxed text-foreground">
-                            {MASKED_PIX_KEY}
-                          </code>
-                          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+                          <button
+                            type="button"
+                            className="min-w-0 flex-1 cursor-pointer rounded-2xl border border-primary/15 bg-surface px-3 py-2.5 text-left shadow-[0_8px_22px_-20px_oklch(0.25_0.03_260_/_24%)] transition-colors hover:border-primary/25 hover:bg-background"
+                            onClick={() => copyPixKey(message.id)}
+                            aria-label="Copiar chave Pix completa"
+                          >
+                            <code className="block break-all text-[12.5px] font-medium leading-relaxed text-foreground">
+                              {MASKED_PIX_KEY}
+                            </code>
+                          </button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-10 shrink-0 gap-2 rounded-2xl border-primary/32 bg-primary/[0.045] px-3 text-[12.5px] font-semibold text-primary shadow-[0_8px_22px_-22px_oklch(0.42_0.12_245_/_18%)] transition-all hover:border-primary/45 hover:bg-primary/[0.075] hover:!text-primary hover:shadow-[0_10px_24px_-22px_oklch(0.42_0.12_245_/_28%)] sm:h-auto"
+                            onClick={() => copyPixKey(message.id)}
+                            aria-label="Copiar chave Pix completa"
+                          >
                             {supportCopied ? (
                               <Check className="size-4" />
                             ) : (
                               <Copy className="size-4" />
                             )}
-                          </span>
-                        </Button>
+                            <span>{supportCopied ? "Copiado" : "Copiar"}</span>
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </MessageContent>
@@ -424,13 +469,17 @@ export function ChatWindow() {
             </p>
           )}
           <PromptInput
-            className="rounded-[26px] border-border/70 bg-surface shadow-float transition-shadow duration-300 focus-within:shadow-[0_8px_32px_-18px_oklch(0.2_0.02_260_/_36%)]"
+            className="rounded-[15px] bg-transparent shadow-float transition-shadow duration-300 focus-within:shadow-[0_8px_32px_-18px_oklch(0.2_0.02_260_/_36%)]"
             onSubmit={() => send(input)}
           >
             <PromptInputTextarea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder={`Fale com o ${state.assistantName}...`}
+              placeholder={
+                voiceStatus === "recording"
+                  ? "Estou ouvindo..."
+                  : `Fale com o ${state.assistantName}...`
+              }
               className="text-[16px] sm:text-[15px]"
             />
             <PromptInputFooter className="justify-between gap-2 border-0 p-2">
@@ -453,17 +502,23 @@ export function ChatWindow() {
                   type="button"
                   variant={voiceStatus === "recording" ? "default" : "ghost"}
                   size="icon-sm"
-                  className="size-9 rounded-full"
+                  className={`size-9 rounded-full transition-all duration-300 ${
+                    voiceStatus === "recording"
+                      ? "shadow-[0_10px_26px_-16px_oklch(0.55_0.15_245_/_55%)] ring-4 ring-primary/10"
+                      : voiceStatus === "processing"
+                        ? "bg-secondary text-primary"
+                        : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  }`}
                   onClick={toggleVoiceInput}
                   disabled={busy || voiceStatus === "processing"}
                   aria-label={
                     voiceStatus === "recording"
-                      ? "Parar gravação"
+                      ? "Parar gravação e manter transcrição"
                       : "Transcrever mensagem por áudio"
                   }
                   title={
                     voiceStatus === "recording"
-                      ? "Parar gravação"
+                      ? "Parar e manter transcrição"
                       : voiceStatus === "processing"
                         ? "Processando áudio"
                         : "Falar mensagem"
@@ -478,8 +533,8 @@ export function ChatWindow() {
                   )}
                 </Button>
                 {voiceStatus !== "idle" && (
-                  <span className="hidden text-[12px] text-muted-foreground sm:inline">
-                    {voiceStatus === "recording" ? "Gravando..." : "Processando..."}
+                  <span className="rounded-full bg-secondary px-2 py-1 text-[11px] font-medium text-muted-foreground sm:text-[12px]">
+                    {voiceFeedbackLabel}
                   </span>
                 )}
                 <PromptInputSubmit

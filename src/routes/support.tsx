@@ -68,7 +68,7 @@ export function SupportPage() {
                 onClick={copyPixKey}
               >
                 {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-                {copied ? "Chave copiada" : "Copiar chave Pix"}
+                {copied ? "Copiado" : "Copiar chave Pix"}
               </Button>
             </div>
 
@@ -105,20 +105,28 @@ export function SupportPage() {
               <KeyRound className="size-3.5 text-primary" />
               Chave Pix
             </p>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-auto min-h-12 w-full justify-between gap-3 rounded-2xl bg-surface px-3.5 py-3 text-left sm:px-3 sm:py-2.5"
-              onClick={copyPixKey}
-              aria-label="Copiar chave Pix completa"
-            >
-              <code className="min-w-0 flex-1 break-all text-[12px] font-medium leading-relaxed text-foreground sm:text-[13px]">
-                {MASKED_PIX_KEY}
-              </code>
-              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-secondary text-primary sm:size-8">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+              <button
+                type="button"
+                className="min-w-0 flex-1 cursor-pointer rounded-2xl border border-border/55 bg-surface px-3.5 py-3 text-left transition-colors hover:border-primary/25 hover:bg-background sm:px-3 sm:py-2.5"
+                onClick={copyPixKey}
+                aria-label="Copiar chave Pix completa"
+              >
+                <code className="block break-all text-[12px] font-medium leading-relaxed text-foreground sm:text-[13px]">
+                  {MASKED_PIX_KEY}
+                </code>
+              </button>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-10 shrink-0 gap-2 rounded-2xl border-primary/32 bg-primary/[0.045] px-3 text-[12.5px] font-semibold text-primary shadow-[0_8px_22px_-22px_oklch(0.42_0.12_245_/_18%)] transition-all hover:border-primary/45 hover:bg-primary/[0.075] hover:!text-primary hover:shadow-[0_10px_24px_-22px_oklch(0.42_0.12_245_/_28%)] sm:h-auto"
+                onClick={copyPixKey}
+                aria-label="Copiar chave Pix completa"
+              >
                 {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-              </span>
-            </Button>
+                <span>{copied ? "Copiado" : "Copiar"}</span>
+              </Button>
+            </div>
             <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
               A chave aparece mascarada por segurança, mas o botão copia o valor completo.
             </p>
