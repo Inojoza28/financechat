@@ -469,7 +469,7 @@ export function ChatWindow() {
             </p>
           )}
           <PromptInput
-            className="rounded-[15px] bg-transparent shadow-float transition-shadow duration-300 focus-within:shadow-[0_8px_32px_-18px_oklch(0.2_0.02_260_/_36%)]"
+            className="rounded-[16px] bg-transparent shadow-float transition-shadow duration-300 focus-within:shadow-[0_8px_32px_-18px_oklch(0.2_0.02_260_/_36%)]"
             onSubmit={() => send(input)}
           >
             <PromptInputTextarea
