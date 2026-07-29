@@ -62,12 +62,13 @@ import {
   monthKey,
   monthLabel,
   monthlyIncome,
-  recurringPaymentsForMonth,
+  recurringIncomeOccurrencesForMonth,
   summarize,
   useFinance,
   type Expense,
   type FinanceState,
   type FixedExpense,
+  type IncomeOccurrence,
   type Revenue,
 } from "@/lib/finance-store";
 import { Badge } from "@/components/ui/badge";
@@ -88,16 +89,7 @@ type EditableStatKey = "income" | "extraIncome" | "spent" | "limit";
 type RecentLaunch =
   | ({ kind: "expense" } & Expense)
   | ({ kind: "revenue" } & Revenue)
-  | {
-      kind: "income";
-      id: string;
-      description: string;
-      amount: number;
-      date: string;
-      createdAt: string;
-      category: string;
-      paymentLabel: string;
-    }
+  | ({ kind: "income"; createdAt: string; category: string } & IncomeOccurrence)
   | {
       kind: "fixedExpense";
       id: string;
@@ -236,6 +228,10 @@ function DashboardContent({ state }: { state: FinanceState }) {
   });
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [expenseModalOpen, setExpenseModalOpen] = useState(false);
+  const [incomeEntryModalOpen, setIncomeEntryModalOpen] = useState(false);
+  const [selectedIncomeEntry, setSelectedIncomeEntry] = useState<
+    Extract<RecentLaunch, { kind: "revenue" | "income" }> | null
+  >(null);
   const [visibleLaunchCount, setVisibleLaunchCount] = useState(RECENT_LAUNCH_PAGE_SIZE);
   const [fixedExpenseModalOpen, setFixedExpenseModalOpen] = useState(false);
   const [selectedFixedExpense, setSelectedFixedExpense] = useState<FixedExpense | null>(null);
@@ -243,6 +239,9 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const [editAmount, setEditAmount] = useState("");
   const [editCategory, setEditCategory] = useState<string>("Geral");
   const [editDate, setEditDate] = useState("");
+  const [incomeEntryDescription, setIncomeEntryDescription] = useState("");
+  const [incomeEntryAmount, setIncomeEntryAmount] = useState("");
+  const [incomeEntryDate, setIncomeEntryDate] = useState("");
   const [fixedDescription, setFixedDescription] = useState("");
   const [fixedAmount, setFixedAmount] = useState("");
   const [fixedCategory, setFixedCategory] = useState<string>("Contas");
@@ -263,17 +262,15 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const recentIncomePayments: RecentLaunch[] =
     state.income && isIncomeAutoDepositEnabled(state.income)
       ? monthKeysInRange(recentCutoff, today)
-          .flatMap((month) => recurringPaymentsForMonth(state.income, month))
+          .flatMap((month) =>
+            recurringIncomeOccurrencesForMonth(state.income, state.incomeOverrides, month),
+          )
           .filter((payment) => payment.date >= recentCutoff && payment.date <= today)
           .map((payment) => ({
+            ...payment,
             kind: "income",
-            id: `income-${payment.date}-${payment.label}-${payment.amount}`,
-            description: "Salário recebido",
-            amount: payment.amount,
-            date: payment.date,
             createdAt: `${payment.date}T12:00:00.000Z`,
             category: "Renda automática",
-            paymentLabel: payment.label,
           }))
       : [];
   const recentFixedExpenses: RecentLaunch[] = monthKeysInRange(recentCutoff, today)
@@ -424,6 +421,68 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const closeExpense = () => {
     setExpenseModalOpen(false);
     setSelectedExpense(null);
+  };
+
+  const openIncomeEntry = (entry: Extract<RecentLaunch, { kind: "revenue" | "income" }>) => {
+    setSelectedIncomeEntry(entry);
+    setIncomeEntryDescription(entry.description);
+    setIncomeEntryAmount(String(entry.amount).replace(".", ","));
+    setIncomeEntryDate(entry.date);
+    setIncomeEntryModalOpen(true);
+  };
+
+  const closeIncomeEntry = () => {
+    setIncomeEntryModalOpen(false);
+    setSelectedIncomeEntry(null);
+  };
+
+  const saveIncomeEntry = () => {
+    if (!selectedIncomeEntry) return;
+
+    const amount = moneyFromInput(incomeEntryAmount);
+    const description = incomeEntryDescription.trim();
+
+    if (!description) {
+      toast.error("Informe uma descrição.");
+      return;
+    }
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error("Informe um valor válido.");
+      return;
+    }
+
+    if (selectedIncomeEntry.kind === "revenue") {
+      financeActions.updateRevenue(selectedIncomeEntry.id, {
+        description,
+        amount,
+        date: incomeEntryDate || selectedIncomeEntry.date,
+      });
+      toast.success("Receita extra atualizada.");
+    } else {
+      financeActions.upsertIncomeOverride({
+        paymentId: selectedIncomeEntry.id,
+        description,
+        amount,
+      });
+      toast.success("Salário atualizado.");
+    }
+
+    closeIncomeEntry();
+  };
+
+  const deleteSelectedIncomeEntry = () => {
+    if (!selectedIncomeEntry) return;
+
+    if (selectedIncomeEntry.kind === "revenue") {
+      financeActions.removeRevenue(selectedIncomeEntry.id);
+      toast.success("Receita extra excluída.");
+    } else {
+      financeActions.removeIncomeOccurrence(selectedIncomeEntry.id);
+      toast.success("Salário removido deste histórico.");
+    }
+
+    closeIncomeEntry();
   };
 
   const saveExpense = () => {
@@ -939,6 +998,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           <p className="truncate text-[14px] font-medium">{entry.description}</p>
                           {entry.manual && (
                             <Badge
+                              variant="outline"
                               className="shrink-0 rounded-full border border-sky-200/70 bg-sky-50 px-2 py-0 text-[10px] font-medium text-sky-700 shadow-none"
                             >
                               Manual
@@ -956,11 +1016,18 @@ function DashboardContent({ state }: { state: FinanceState }) {
                       </span>
                     </button>
                   ) : entry.kind === "revenue" ? (
-                    <div className="flex w-full items-center justify-between gap-3 rounded-xl bg-emerald-50/40 py-2.5 text-left ring-1 ring-emerald-100/60">
+                    <button
+                      type="button"
+                      onClick={() => openIncomeEntry(entry)}
+                      className="flex w-full items-center justify-between gap-3 rounded-xl bg-emerald-50/40 py-2.5 text-left ring-1 ring-emerald-100/60 transition-colors hover:bg-emerald-50/65 focus-visible:bg-emerald-50/65"
+                    >
                       <div className="min-w-0 px-2">
                         <div className="flex min-w-0 items-center gap-2">
                           <p className="truncate text-[14px] font-medium">{entry.description}</p>
-                          <Badge className="shrink-0 rounded-full border border-emerald-200/75 bg-emerald-100/65 px-2 py-0 text-[10px] font-medium text-emerald-700 shadow-none">
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 rounded-full border border-emerald-200/75 bg-emerald-100/65 px-2 py-0 text-[10px] font-medium text-emerald-700 shadow-none"
+                          >
                             Receita extra
                           </Badge>
                         </div>
@@ -969,16 +1036,24 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
                         </p>
                       </div>
-                      <span className="shrink-0 px-2 text-[14px] font-semibold text-emerald-700 tabular-nums">
+                      <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold text-emerald-700 tabular-nums">
                         + {formatBRL(entry.amount)}
+                        <Pencil className="size-3.5 text-emerald-600/70" />
                       </span>
-                    </div>
+                    </button>
                   ) : entry.kind === "income" ? (
-                    <div className="flex w-full items-center justify-between gap-3 rounded-xl bg-emerald-50/55 py-2.5 text-left ring-1 ring-emerald-100/70">
+                    <button
+                      type="button"
+                      onClick={() => openIncomeEntry(entry)}
+                      className="flex w-full items-center justify-between gap-3 rounded-xl bg-emerald-50/55 py-2.5 text-left ring-1 ring-emerald-100/70 transition-colors hover:bg-emerald-50/75 focus-visible:bg-emerald-50/75"
+                    >
                       <div className="min-w-0 px-2">
                         <div className="flex min-w-0 items-center gap-2">
                           <p className="truncate text-[14px] font-medium">{entry.description}</p>
-                          <Badge className="shrink-0 rounded-full border border-emerald-200/80 bg-emerald-100/80 px-2 py-0 text-[10px] font-medium text-emerald-700 shadow-none">
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 rounded-full border border-emerald-200/80 bg-emerald-100/80 px-2 py-0 text-[10px] font-medium text-emerald-700 shadow-none"
+                          >
                             Salário
                           </Badge>
                         </div>
@@ -987,16 +1062,20 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
                         </p>
                       </div>
-                      <span className="shrink-0 px-2 text-[14px] font-semibold text-emerald-700 tabular-nums">
+                      <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold text-emerald-700 tabular-nums">
                         + {formatBRL(entry.amount)}
+                        <Pencil className="size-3.5 text-emerald-600/70" />
                       </span>
-                    </div>
+                    </button>
                   ) : (
                     <div className="flex w-full items-center justify-between gap-3 rounded-xl bg-rose-50/45 py-2.5 text-left ring-1 ring-rose-100/70">
                       <div className="min-w-0 px-2">
                         <div className="flex min-w-0 items-center gap-2">
                           <p className="truncate text-[14px] font-medium">{entry.description}</p>
-                          <Badge className="shrink-0 rounded-full border border-rose-200/80 bg-rose-100/75 px-2 py-0 text-[10px] font-medium text-rose-700 shadow-none">
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 rounded-full border border-rose-200/80 bg-rose-100/75 px-2 py-0 text-[10px] font-medium text-rose-700 shadow-none"
+                          >
                             Despesa fixa
                           </Badge>
                         </div>
@@ -1148,6 +1227,119 @@ function DashboardContent({ state }: { state: FinanceState }) {
               onClick={saveExpense}
             >
               {selectedExpense ? "Salvar alterações" : "Adicionar lançamento"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={incomeEntryModalOpen} onOpenChange={(open) => !open && closeIncomeEntry()}>
+        <DialogContent className="rounded-[20px] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {selectedIncomeEntry?.kind === "income" ? "Editar salário" : "Editar receita extra"}
+            </DialogTitle>
+            <DialogDescription>
+              Ajuste descrição e valor. A identificação do lançamento permanece bloqueada.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3">
+            <div>
+              <Label htmlFor="income-entry-description" className="text-[13px]">
+                Descrição
+              </Label>
+              <Input
+                id="income-entry-description"
+                value={incomeEntryDescription}
+                onChange={(event) => setIncomeEntryDescription(event.target.value)}
+                className="mt-1.5 rounded-xl"
+              />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="income-entry-amount" className="text-[13px]">
+                  Valor
+                </Label>
+                <Input
+                  id="income-entry-amount"
+                  inputMode="decimal"
+                  value={incomeEntryAmount}
+                  onChange={(event) => setIncomeEntryAmount(event.target.value)}
+                  className="mt-1.5 rounded-xl"
+                />
+              </div>
+              <div>
+                <Label htmlFor="income-entry-date" className="text-[13px]">
+                  Data
+                </Label>
+                <Input
+                  id="income-entry-date"
+                  type="date"
+                  value={incomeEntryDate}
+                  disabled={selectedIncomeEntry?.kind === "income"}
+                  onChange={(event) => setIncomeEntryDate(event.target.value)}
+                  className="mt-1.5 rounded-xl disabled:opacity-70"
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-[13px]">Categoria</Label>
+              <div className="mt-1.5 rounded-xl border border-border/70 bg-secondary/45 px-3 py-2 text-[13px] font-medium text-muted-foreground">
+                {selectedIncomeEntry?.kind === "income" ? "Salário" : "Receita extra"}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:space-x-0">
+            <div className="order-2 flex w-full gap-2 sm:order-1 sm:w-auto">
+              {selectedIncomeEntry && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" className="flex-1 rounded-xl sm:flex-none">
+                      <Trash2 className="size-4" />
+                      Excluir
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent className="rounded-[20px]">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>
+                        Excluir este{" "}
+                        {selectedIncomeEntry.kind === "income" ? "salário" : "lançamento"}?
+                      </AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Essa ação atualiza o saldo, os cards, gráficos e projeções. Não dá para
+                        desfazer.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="gap-2 sm:space-x-0">
+                      <AlertDialogCancel className="mt-0 rounded-xl">Cancelar</AlertDialogCancel>
+                      <AlertDialogAction
+                        className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        onClick={deleteSelectedIncomeEntry}
+                      >
+                        Excluir definitivamente
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+
+              <Button
+                variant="outline"
+                className="flex-1 rounded-xl sm:flex-none"
+                onClick={closeIncomeEntry}
+              >
+                Cancelar
+              </Button>
+            </div>
+
+            <Button
+              className="order-1 w-full rounded-xl sm:order-2 sm:w-auto"
+              onClick={saveIncomeEntry}
+            >
+              Salvar alterações
             </Button>
           </DialogFooter>
         </DialogContent>

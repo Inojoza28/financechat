@@ -22,6 +22,22 @@ export type RecurringIncomePayment = {
   label: string;
 };
 
+export type IncomeOverride = {
+  id: string;
+  paymentId: string;
+  description: string;
+  amount: number;
+  deleted?: boolean;
+  createdAt: string;
+};
+
+export type IncomeOccurrence = RecurringIncomePayment & {
+  id: string;
+  description: string;
+  deleted?: boolean;
+  overrideId?: string;
+};
+
 export type Expense = {
   id: string;
   description: string;
@@ -76,6 +92,7 @@ export type FinanceState = {
   expenses: Expense[];
   fixedExpenses: FixedExpense[];
   revenues: Revenue[];
+  incomeOverrides: IncomeOverride[];
   messages: UIMessage[];
   messagesByMonth: Record<string, UIMessage[]>;
 };
@@ -103,6 +120,7 @@ const initialState: FinanceState = {
   expenses: [],
   fixedExpenses: [],
   revenues: [],
+  incomeOverrides: [],
   messages: [],
   messagesByMonth: {},
 };
@@ -163,7 +181,7 @@ function rawImportedState(input: unknown): Partial<FinanceState> {
     throw new Error("Arquivo inválido.");
   }
 
-  for (const key of ["expenses", "fixedExpenses", "revenues", "messages"] as const) {
+  for (const key of ["expenses", "fixedExpenses", "revenues", "incomeOverrides", "messages"] as const) {
     if (key in candidate && !Array.isArray(candidate[key])) {
       throw new Error("Arquivo inválido.");
     }
@@ -219,6 +237,15 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
     date: revenue.date || localISODate(),
     createdAt: revenue.createdAt || new Date().toISOString(),
   }));
+  const incomeOverrides = (parsed.incomeOverrides ?? [])
+    .filter((override) => override.paymentId)
+    .map((override) => ({
+      ...override,
+      amount: normalizeMoney(override.amount),
+      description: override.description?.trim() || "Salário recebido",
+      createdAt: override.createdAt || new Date().toISOString(),
+      deleted: Boolean(override.deleted),
+    }));
   const income = parsed.income
     ? {
         ...parsed.income,
@@ -255,6 +282,7 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
     expenses,
     fixedExpenses,
     revenues,
+    incomeOverrides,
     messages: parsed.messages ?? [],
     messagesByMonth,
   };
@@ -538,9 +566,76 @@ export const financeActions = {
     const s = getFinanceState();
     write({ ...s, fixedExpenses: s.fixedExpenses.filter((expense) => expense.id !== id) });
   },
+  updateRevenue(id: string, patch: Partial<Omit<Revenue, "id" | "createdAt">>) {
+    const s = getFinanceState();
+    write({
+      ...s,
+      revenues: s.revenues.map((revenue) =>
+        revenue.id === id
+          ? {
+              ...revenue,
+              ...patch,
+              amount: patch.amount != null ? normalizeMoney(patch.amount) : revenue.amount,
+              description:
+                patch.description != null
+                  ? patch.description.trim().slice(0, 120) || "Receita extra"
+                  : revenue.description,
+              date: patch.date || revenue.date,
+            }
+          : revenue,
+      ),
+    });
+  },
   removeRevenue(id: string) {
     const s = getFinanceState();
     write({ ...s, revenues: s.revenues.filter((r) => r.id !== id) });
+  },
+  upsertIncomeOverride(input: {
+    paymentId: string;
+    description: string;
+    amount: number;
+    deleted?: boolean;
+  }) {
+    const s = getFinanceState();
+    const existing = s.incomeOverrides.find((override) => override.paymentId === input.paymentId);
+    const nextOverride: IncomeOverride = {
+      id: existing?.id ?? uid(),
+      paymentId: input.paymentId,
+      description: input.description.trim().slice(0, 120) || "Salário recebido",
+      amount: normalizeMoney(input.amount),
+      deleted: Boolean(input.deleted),
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+    };
+
+    write({
+      ...s,
+      incomeOverrides: existing
+        ? s.incomeOverrides.map((override) =>
+            override.paymentId === input.paymentId ? nextOverride : override,
+          )
+        : [...s.incomeOverrides, nextOverride],
+    });
+  },
+  removeIncomeOccurrence(paymentId: string) {
+    const s = getFinanceState();
+    const existing = s.incomeOverrides.find((override) => override.paymentId === paymentId);
+    const nextOverride: IncomeOverride = {
+      id: existing?.id ?? uid(),
+      paymentId,
+      description: existing?.description || "Salário recebido",
+      amount: 0,
+      deleted: true,
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+    };
+
+    write({
+      ...s,
+      incomeOverrides: existing
+        ? s.incomeOverrides.map((override) =>
+            override.paymentId === paymentId ? nextOverride : override,
+          )
+        : [...s.incomeOverrides, nextOverride],
+    });
   },
   setAssistantName(name: string) {
     write({ ...getFinanceState(), assistantName: name.trim().slice(0, 30) || "Fin" });
@@ -766,8 +861,45 @@ export function recurringPaymentsForMonth(
   ].filter((payment) => payment.amount > 0);
 }
 
-export function plannedRecurringIncomeForMonth(income: Income | null, month = currentMonthKey()) {
-  return recurringPaymentsForMonth(income, month).reduce((sum, payment) => sum + payment.amount, 0);
+export function incomePaymentId(payment: Pick<RecurringIncomePayment, "date" | "label">) {
+  return `${payment.date}:${payment.label}`;
+}
+
+export function recurringIncomeOccurrencesForMonth(
+  income: Income | null,
+  incomeOverrides: IncomeOverride[] = [],
+  month = currentMonthKey(),
+): IncomeOccurrence[] {
+  const overridesByPayment = new Map(
+    incomeOverrides.map((override) => [override.paymentId, override]),
+  );
+
+  return recurringPaymentsForMonth(income, month)
+    .map((payment) => {
+      const id = incomePaymentId(payment);
+      const override = overridesByPayment.get(id);
+
+      return {
+        ...payment,
+        id,
+        description: override?.description || "Salário recebido",
+        amount: override ? normalizeMoney(override.amount) : payment.amount,
+        deleted: override?.deleted,
+        overrideId: override?.id,
+      };
+    })
+    .filter((payment) => !payment.deleted && payment.amount > 0);
+}
+
+export function plannedRecurringIncomeForMonth(
+  income: Income | null,
+  month = currentMonthKey(),
+  incomeOverrides: IncomeOverride[] = [],
+) {
+  return recurringIncomeOccurrencesForMonth(income, incomeOverrides, month).reduce(
+    (sum, payment) => sum + payment.amount,
+    0,
+  );
 }
 
 export function fixedExpenseOccurrencesForMonth(
@@ -808,12 +940,15 @@ export function recurringIncomeReceivedUntil(
   income: Income | null,
   date = new Date(),
   month = currentMonthKey(),
+  incomeOverrides: IncomeOverride[] = [],
 ) {
   if (!income || !isIncomeAutoDepositEnabled(income)) return 0;
   const cutoff = localISODate(date);
   if (compareMonthToDate(month, date) > 0) return 0;
-  if (compareMonthToDate(month, date) < 0) return plannedRecurringIncomeForMonth(income, month);
-  return recurringPaymentsForMonth(income, month)
+  if (compareMonthToDate(month, date) < 0) {
+    return plannedRecurringIncomeForMonth(income, month, incomeOverrides);
+  }
+  return recurringIncomeOccurrencesForMonth(income, incomeOverrides, month)
     .filter((payment) => payment.date <= cutoff)
     .reduce((sum, payment) => sum + payment.amount, 0);
 }
@@ -826,7 +961,8 @@ export function cashBalanceUntil(
   const cutoffMonth = monthKey(cutoff);
   const startMonth = state.income?.startsAtMonth ?? currentMonthKey();
   const recurringReceived = monthKeysBetween(startMonth, cutoffMonth).reduce(
-    (sum, month) => sum + recurringIncomeReceivedUntil(state.income, date, month),
+    (sum, month) =>
+      sum + recurringIncomeReceivedUntil(state.income, date, month, state.incomeOverrides),
     0,
   );
   const extraIncome = state.revenues
@@ -895,8 +1031,17 @@ export function summarize(state: FinanceState, month = currentMonthKey()) {
   const cutoff = cutoffForMonth(month);
   const cutoffDate = dateFromIso(cutoff);
   const cumulativeCash = cashBalanceUntilISO(state, cutoff);
-  const recurringIncome = recurringIncomeReceivedUntil(state.income, cutoffDate, month);
-  const plannedRecurringIncome = plannedRecurringIncomeForMonth(state.income, month);
+  const recurringIncome = recurringIncomeReceivedUntil(
+    state.income,
+    cutoffDate,
+    month,
+    state.incomeOverrides,
+  );
+  const plannedRecurringIncome = plannedRecurringIncomeForMonth(
+    state.income,
+    month,
+    state.incomeOverrides,
+  );
   const monthExpenses = state.expenses.filter((e) => monthKey(e.date) === month);
   const monthFixedExpenses = fixedExpenseOccurrencesForMonth(state.fixedExpenses, month);
   const dueFixedExpenses = monthFixedExpenses.filter((expense) => expense.date <= cutoff);
