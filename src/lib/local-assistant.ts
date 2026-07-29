@@ -30,6 +30,12 @@ type ConversationContext = {
   }>;
 };
 
+type ParsedExpenseEntry = {
+  amount: number;
+  description: string;
+  category: string;
+};
+
 const EXPENSE_WORDS = [
   "gastei",
   "gasto",
@@ -283,10 +289,11 @@ export function parseMoney(text: string): number | null {
   return Number.isFinite(amount) && amount > 0 ? amount : null;
 }
 
+const MONEY_PATTERN =
+  /(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+|\d+)(?:([,.])(\d{1,2}))?\s*(?:reais?|brl)?/gi;
+
 function parseMoneyValues(text: string) {
-  const matches = text.matchAll(
-    /(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+|\d+)(?:([,.])(\d{1,2}))?\s*(?:reais?|brl)?/gi,
-  );
+  const matches = text.matchAll(MONEY_PATTERN);
 
   return Array.from(matches)
     .filter((match) => !/\bdia\s*$/i.test(text.slice(Math.max(0, match.index - 6), match.index)))
@@ -490,6 +497,50 @@ function cleanDescription(text: string, amount: number) {
   return withoutAmount || `Gasto de ${formatBRL(amount)}`;
 }
 
+function cleanExpenseSegment(segment: string, amount: number) {
+  const description = segment
+    .replace(
+      /\b(eu|gastei|gasto|paguei|comprei|compra|despesa|registre|registra|anote|anota|lance)\b/gi,
+      "",
+    )
+    .replace(/^[\s,.;:–-]*(?:e\s+)?(?:com|de|do|da|no|na|em|para)\s+/i, "")
+    .replace(/\s+(?:e|,|;|\.|com|de|do|da|no|na|em|para)\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return description || `Gasto de ${formatBRL(amount)}`;
+}
+
+function parseMultipleExpenseEntries(text: string): ParsedExpenseEntry[] {
+  const matches = Array.from(text.matchAll(MONEY_PATTERN)).filter(
+    (match) => !/\bdia\s*$/i.test(text.slice(Math.max(0, (match.index ?? 0) - 6), match.index)),
+  );
+
+  if (matches.length < 2) return [];
+
+  return matches
+    .map((match, index) => {
+      const amount = parseMoney(match[0]);
+      if (!amount) return null;
+
+      const currentEnd = (match.index ?? 0) + match[0].length;
+      const nextStart = matches[index + 1]?.index ?? text.length;
+      const previousEnd =
+        index === 0 ? 0 : (matches[index - 1].index ?? 0) + matches[index - 1][0].length;
+      const afterAmount = text.slice(currentEnd, nextStart);
+      const beforeAmount = index === 0 ? text.slice(previousEnd, match.index) : "";
+      const segment = `${beforeAmount} ${afterAmount}`;
+      const description = cleanExpenseSegment(segment, amount);
+
+      return {
+        amount,
+        description,
+        category: inferCategory(description),
+      };
+    })
+    .filter((entry): entry is ParsedExpenseEntry => entry != null);
+}
+
 function cleanRevenueDescription(text: string, amount: number) {
   const withoutAmount = text
     .replace(/(?:r\$\s*)?\d{1,3}(?:\.\d{3})*(?:[,.]\d{1,2})?\s*(?:reais?|brl)?/i, "")
@@ -661,6 +712,38 @@ function registerExpense(text: string, amount: number, month: string) {
   });
 
   return formatExpenseConfirmation(expense, month);
+}
+
+function registerMultipleExpenses(text: string, month: string) {
+  const entries = parseMultipleExpenseEntries(text);
+  if (entries.length < 2) return null;
+
+  const expenses = entries.map((entry) =>
+    financeActions.addExpense({
+      amount: entry.amount,
+      category: entry.category,
+      description: entry.description,
+      date: month === monthKey(localISODate()) ? null : `${month}-01`,
+    }),
+  );
+  const total = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const s = summarize(getFinanceState(), month);
+  const limitText =
+    s.spendingLimit == null
+      ? ""
+      : s.limitStatus === "exceeded"
+        ? `\n\nAtenção: você passou do limite de gastos em **${formatBRL(Math.abs(s.limitRemaining ?? 0))}**.`
+        : s.limitStatus === "warning"
+          ? `\n\nAtenção: você já usou **${s.limitUsedPercent}%** do seu limite. Ainda restam **${formatBRL(Math.max(0, s.limitRemaining ?? 0))}**.`
+          : `\n\nVocê usou **${s.limitUsedPercent}%** do limite e ainda tem **${formatBRL(Math.max(0, s.limitRemaining ?? 0))}** para gastar dentro do teto definido.`;
+
+  return [
+    `Pronto, registrei **${expenses.length} despesas** no total de **${formatBRL(total)}**:`,
+    "",
+    ...expenses.map((expense) => `- ${expenseLine(expense)}`),
+    "",
+    `Total gasto no período: **${formatBRL(s.spent)}**. Saldo disponível: **${formatBRL(s.balance)}**.${limitText}`,
+  ].join("\n");
 }
 
 function findExpenseCandidatesToRemove(text: string, state: FinanceState, month: string) {
@@ -1010,6 +1093,9 @@ export function answerLocally(
     standaloneAmount !== null ||
     (amount && (includesAny(normalized, EXPENSE_WORDS) || hasExpenseDescriptionWithAmount(text)))
   ) {
+    const multipleExpenses = registerMultipleExpenses(text, month);
+    if (multipleExpenses) return { text: multipleExpenses };
+
     return { text: registerExpense(text, amount, month) };
   }
 
