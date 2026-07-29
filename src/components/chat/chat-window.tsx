@@ -487,7 +487,7 @@ export function ChatWindow() {
       </Conversation>
 
       <div className="glass border-t border-border/50">
-        <div className="mx-auto w-full max-w-3xl px-4 pt-3 pb-5 sm:pb-4">
+        <div className="mx-auto w-full max-w-3xl px-4 pt-3 pb-6 sm:pb-5">
           {state.income && (
             <p className="mb-2 text-center text-[12px] text-muted-foreground">
               Saldo acumulado até {monthLabel(selectedMonth)}:{" "}
