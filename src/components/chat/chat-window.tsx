@@ -511,9 +511,9 @@ export function ChatWindow() {
                   ? "Estou ouvindo..."
                   : `Fale com o ${state.assistantName}...`
               }
-              className="text-[16px] sm:text-[15px]"
+              className="min-h-[56px] py-2 text-[16px] sm:min-h-[54px] sm:text-[15px]"
             />
-            <PromptInputFooter className="justify-between gap-2 border-0 p-2">
+            <PromptInputFooter className="justify-between gap-2 border-0 p-1.5">
               <div className="flex items-center gap-1.5">
                 <Button
                   type="button"
