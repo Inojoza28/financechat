@@ -12,6 +12,7 @@ import {
 import {
   CalendarClock,
   Check,
+  ChevronDown,
   Eye,
   EyeOff,
   LayoutDashboard,
@@ -1018,12 +1019,13 @@ function DashboardContent({ state }: { state: FinanceState }) {
                 <Button
                   type="button"
                   variant="outline"
-                  className="h-9 rounded-full border-border/70 bg-background/70 px-4 text-[12.5px] font-medium text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-secondary/55 hover:text-foreground"
+                  className="h-9 rounded-full border-border/70 bg-transparent px-4 text-[12.5px] font-medium text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-transparent hover:text-primary"
                   onClick={() =>
                     setVisibleLaunchCount((current) => current + RECENT_LAUNCH_PAGE_SIZE)
                   }
                 >
-                  Ver mais
+                  Ver mais lançamentos
+                  <ChevronDown className="size-3.5" />
                 </Button>
               </div>
             )}
