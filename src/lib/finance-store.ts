@@ -139,6 +139,52 @@ function earliestMonthKey(keys: string[]) {
   return keys.filter(isValidMonthKey).sort()[0] ?? currentMonthKey();
 }
 
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function rawImportedState(input: unknown): Partial<FinanceState> {
+  if (!isObjectRecord(input)) {
+    throw new Error("Arquivo inválido.");
+  }
+
+  const data = input.data;
+  const candidate = isObjectRecord(data) ? data : input;
+  const hasHeyFinEnvelope = input.app === "HeyFin" && input.version === 1 && isObjectRecord(data);
+  const hasLegacyStateShape =
+    "assistantName" in candidate ||
+    "income" in candidate ||
+    "expenses" in candidate ||
+    "revenues" in candidate ||
+    "messagesByMonth" in candidate ||
+    "fixedExpenses" in candidate;
+
+  if (!hasHeyFinEnvelope && !hasLegacyStateShape) {
+    throw new Error("Arquivo inválido.");
+  }
+
+  for (const key of ["expenses", "fixedExpenses", "revenues", "messages"] as const) {
+    if (key in candidate && !Array.isArray(candidate[key])) {
+      throw new Error("Arquivo inválido.");
+    }
+  }
+
+  if ("messagesByMonth" in candidate && !isObjectRecord(candidate.messagesByMonth)) {
+    throw new Error("Arquivo inválido.");
+  }
+
+  if ("income" in candidate && candidate.income !== null && !isObjectRecord(candidate.income)) {
+    throw new Error("Arquivo inválido.");
+  }
+
+  return candidate as Partial<FinanceState>;
+}
+
+export function validateImportableFinanceState(input: unknown) {
+  rawImportedState(input);
+  return true;
+}
+
 function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
   const fallbackMonth = currentMonthKey();
   const messagesByMonth =
@@ -523,12 +569,7 @@ export const financeActions = {
     });
   },
   importState(input: unknown) {
-    if (!input || typeof input !== "object") {
-      throw new Error("Arquivo inválido.");
-    }
-    const candidate = input as { data?: Partial<FinanceState> };
-    const rawState = candidate.data && typeof candidate.data === "object" ? candidate.data : input;
-    write(normalizeFinanceState(rawState as Partial<FinanceState>));
+    write(normalizeFinanceState(rawImportedState(input)));
   },
 };
 

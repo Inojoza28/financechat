@@ -554,6 +554,48 @@ function cleanRevenueDescription(text: string, amount: number) {
   return withoutAmount || `Receita extra de ${formatBRL(amount)}`;
 }
 
+function cleanRevenueSegment(segment: string, amount: number) {
+  const description = segment
+    .replace(
+      /\b(eu|ganhei|recebi|entrou|entrada|extra|bonus|bonificacao|comissao|freela|a mais|adicione|adicionar|adiciona|coloque|colocar|coloca|some|somar|soma|deposite|depositar|deposita|saldo|um|uma)\b/gi,
+      "",
+    )
+    .replace(/^[\s,.;:–-]*(?:e\s+)?(?:de|do|da|no|na|em|com|para|ao)\s+/i, "")
+    .replace(/\s+(?:e|,|;|\.|de|do|da|no|na|em|com|para|ao)\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return description || `Receita extra de ${formatBRL(amount)}`;
+}
+
+function parseMultipleRevenueEntries(text: string): Array<{ amount: number; description: string }> {
+  const matches = Array.from(text.matchAll(MONEY_PATTERN)).filter(
+    (match) => !/\bdia\s*$/i.test(text.slice(Math.max(0, (match.index ?? 0) - 6), match.index)),
+  );
+
+  if (matches.length < 2) return [];
+
+  return matches
+    .map((match, index) => {
+      const amount = parseMoney(match[0]);
+      if (!amount) return null;
+
+      const currentEnd = (match.index ?? 0) + match[0].length;
+      const nextStart = matches[index + 1]?.index ?? text.length;
+      const previousEnd =
+        index === 0 ? 0 : (matches[index - 1].index ?? 0) + matches[index - 1][0].length;
+      const afterAmount = text.slice(currentEnd, nextStart);
+      const beforeAmount = index === 0 ? text.slice(previousEnd, match.index) : "";
+      const segment = `${beforeAmount} ${afterAmount}`;
+
+      return {
+        amount,
+        description: cleanRevenueSegment(segment, amount),
+      };
+    })
+    .filter((entry): entry is { amount: number; description: string } => entry != null);
+}
+
 function isAddToBalanceIntent(text: string) {
   return includesAny(text, ADD_TO_BALANCE_WORDS) && !includesAny(text, EXPENSE_WORDS);
 }
@@ -701,6 +743,31 @@ function registerRevenue(text: string, amount: number, month: string) {
   });
 
   return formatRevenueConfirmation(revenue, month);
+}
+
+function registerMultipleRevenues(text: string, month: string) {
+  const entries = parseMultipleRevenueEntries(text);
+  if (entries.length < 2) return null;
+
+  const revenues = entries.map((entry) =>
+    financeActions.addRevenue({
+      amount: entry.amount,
+      description: entry.description,
+      date: month === monthKey(localISODate()) ? null : `${month}-01`,
+    }),
+  );
+  const total = revenues.reduce((sum, revenue) => sum + revenue.amount, 0);
+  const s = summarize(getFinanceState(), month);
+
+  return [
+    `Pronto, registrei **${revenues.length} receitas extras** no total de **${formatBRL(total)}**:`,
+    "",
+    ...revenues.map((revenue) => `- ${formatBRL(revenue.amount)}: ${revenue.description}`),
+    "",
+    `Extras em ${monthLabel(month)}: **${formatBRL(s.extraIncome)}**. Saldo disponível acumulado: **${formatBRL(s.balance)}**.`,
+    "",
+    "Essas entradas foram somadas ao saldo sem alterar a renda recorrente cadastrada.",
+  ].join("\n");
 }
 
 function registerExpense(text: string, amount: number, month: string) {
@@ -1072,6 +1139,9 @@ export function answerLocally(
   }
 
   if (amount && (includesAny(normalized, EXTRA_REVENUE_WORDS) || isAddToBalanceIntent(normalized))) {
+    const multipleRevenues = registerMultipleRevenues(text, month);
+    if (multipleRevenues) return { text: multipleRevenues };
+
     return { text: registerRevenue(text, amount, month) };
   }
 

@@ -44,6 +44,7 @@ import {
   localISODate,
   recommendedSpendingLimit,
   useFinance,
+  validateImportableFinanceState,
   type IncomePeriod,
 } from "@/lib/finance-store";
 
@@ -185,10 +186,11 @@ function SettingsContent() {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text);
+      validateImportableFinanceState(parsed);
       setPendingImport(parsed);
       setImportDialogOpen(true);
     } catch {
-      toast.error("Não consegui ler esse arquivo JSON.");
+      toast.error("Esse arquivo não parece ser um backup válido do HeyFin.");
     } finally {
       if (importInputRef.current) importInputRef.current.value = "";
     }
