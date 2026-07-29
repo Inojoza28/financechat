@@ -34,7 +34,25 @@ type ParsedExpenseEntry = {
   amount: number;
   description: string;
   category: string;
+  month?: string;
+  targetStatus?: "current-or-future" | "past-explicit" | "ambiguous-past";
+  monthLabel?: string;
 };
+
+const MONTH_ALIASES = [
+  { index: 1, names: ["janeiro", "jan"] },
+  { index: 2, names: ["fevereiro", "fev"] },
+  { index: 3, names: ["marco", "março", "mar"] },
+  { index: 4, names: ["abril", "abr"] },
+  { index: 5, names: ["maio", "mai"] },
+  { index: 6, names: ["junho", "jun"] },
+  { index: 7, names: ["julho", "jul"] },
+  { index: 8, names: ["agosto", "ago"] },
+  { index: 9, names: ["setembro", "set"] },
+  { index: 10, names: ["outubro", "out"] },
+  { index: 11, names: ["novembro", "nov"] },
+  { index: 12, names: ["dezembro", "dez"] },
+] as const;
 
 const EXPENSE_WORDS = [
   "gastei",
@@ -292,11 +310,19 @@ export function parseMoney(text: string): number | null {
 const MONEY_PATTERN =
   /(?:r\$\s*)?(\d{1,3}(?:\.\d{3})+|\d+)(?:([,.])(\d{1,2}))?\s*(?:reais?|brl)?/gi;
 
+function isIgnoredMoneyMatch(text: string, match: RegExpMatchArray) {
+  const index = match.index ?? 0;
+  const before = normalize(text.slice(Math.max(0, index - 24), index));
+  const value = match[1];
+
+  return /\bdia\s*$/.test(before) || (/^20\d{2}$/.test(value) && new RegExp(`\\b(${monthAliasPattern()})\\s+de\\s*$`).test(before));
+}
+
 function parseMoneyValues(text: string) {
   const matches = text.matchAll(MONEY_PATTERN);
 
   return Array.from(matches)
-    .filter((match) => !/\bdia\s*$/i.test(text.slice(Math.max(0, match.index - 6), match.index)))
+    .filter((match) => !isIgnoredMoneyMatch(text, match))
     .map((match) => parseMoney(match[0]))
     .filter((value): value is number => value != null);
 }
@@ -349,6 +375,74 @@ function compactMessage(text: string) {
 
 function includesAny(text: string, words: string[]) {
   return words.some((word) => text.includes(word));
+}
+
+function monthKeyFromParts(year: number, monthIndex: number) {
+  return `${year}-${String(monthIndex).padStart(2, "0")}`;
+}
+
+function monthAliasPattern() {
+  return MONTH_ALIASES.flatMap((month) => month.names)
+    .sort((a, b) => b.length - a.length)
+    .join("|");
+}
+
+function parseTargetMonth(text: string):
+  | {
+      month: string;
+      status: "current-or-future" | "past-explicit" | "ambiguous-past";
+      label: string;
+      explicitYear: boolean;
+    }
+  | null {
+  const normalized = normalize(text);
+  const pattern = monthAliasPattern();
+  const match = normalized.match(new RegExp(`\\b(${pattern})\\b(?:\\s+(?:de\\s+)?(20\\d{2}))?`));
+  if (!match) return null;
+
+  const alias = match[1];
+  const monthIndex = MONTH_ALIASES.find((month) => month.names.some((name) => normalize(name) === alias))?.index;
+  if (!monthIndex) return null;
+
+  const todayMonth = monthKey(localISODate());
+  const [currentYear] = todayMonth.split("-").map(Number);
+  const explicitYear = Boolean(match[2]);
+  const year = explicitYear ? Number(match[2]) : currentYear;
+  const candidate = monthKeyFromParts(year, monthIndex);
+
+  if (candidate >= todayMonth) {
+    return {
+      month: candidate,
+      status: "current-or-future",
+      label: monthLabel(candidate),
+      explicitYear,
+    };
+  }
+
+  if (explicitYear) {
+    return {
+      month: candidate,
+      status: "past-explicit",
+      label: monthLabel(candidate),
+      explicitYear,
+    };
+  }
+
+  const nextYearMonth = monthKeyFromParts(currentYear + 1, monthIndex);
+  return {
+    month: nextYearMonth,
+    status: "ambiguous-past",
+    label: monthLabel(nextYearMonth),
+    explicitYear,
+  };
+}
+
+function stripTargetMonthText(text: string) {
+  const pattern = monthAliasPattern();
+  return text
+    .replace(new RegExp(`\\b(?:para|em|no|na|pro|pra|coloca(?:r)?\\s+para)?\\s*(?:${pattern})\\b(?:\\s+(?:de\\s+)?20\\d{2})?`, "gi"), " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function isShortConversationalPhrase(text: string, phrases: string[]) {
@@ -484,10 +578,10 @@ function inferCategory(text: string) {
 }
 
 function cleanDescription(text: string, amount: number) {
-  const withoutAmount = text
+  const withoutAmount = stripTargetMonthText(text)
     .replace(/(?:r\$\s*)?\d{1,3}(?:\.\d{3})*(?:[,.]\d{1,2})?\s*(?:reais?|brl)?/i, "")
     .replace(
-      /\b(eu|gastei|gasto|paguei|comprei|compra|despesa|registre|registra|anote|anota|lance)\b/gi,
+      /\b(eu|mas|gastei|gasto|paguei|comprei|compra|despesa|adiciona|adicione|adicionar|coloca|coloque|colocar|registre|registra|anote|anota|lance)\b/gi,
       "",
     )
     .replace(/\b(com|de|do|da|no|na|em|para)\b/gi, "")
@@ -498,9 +592,9 @@ function cleanDescription(text: string, amount: number) {
 }
 
 function cleanExpenseSegment(segment: string, amount: number) {
-  const description = segment
+  const description = stripTargetMonthText(segment)
     .replace(
-      /\b(eu|gastei|gasto|paguei|comprei|compra|despesa|registre|registra|anote|anota|lance)\b/gi,
+      /\b(eu|mas|gastei|gasto|paguei|comprei|compra|despesa|adiciona|adicione|adicionar|coloca|coloque|colocar|registre|registra|anote|anota|lance)\b/gi,
       "",
     )
     .replace(/^[\s,.;:–-]*(?:e\s+)?(?:com|de|do|da|no|na|em|para)\s+/i, "")
@@ -513,7 +607,7 @@ function cleanExpenseSegment(segment: string, amount: number) {
 
 function parseMultipleExpenseEntries(text: string): ParsedExpenseEntry[] {
   const matches = Array.from(text.matchAll(MONEY_PATTERN)).filter(
-    (match) => !/\bdia\s*$/i.test(text.slice(Math.max(0, (match.index ?? 0) - 6), match.index)),
+    (match) => !isIgnoredMoneyMatch(text, match),
   );
 
   if (matches.length < 2) return [];
@@ -530,12 +624,16 @@ function parseMultipleExpenseEntries(text: string): ParsedExpenseEntry[] {
       const afterAmount = text.slice(currentEnd, nextStart);
       const beforeAmount = index === 0 ? text.slice(previousEnd, match.index) : "";
       const segment = `${beforeAmount} ${afterAmount}`;
+      const target = parseTargetMonth(segment) ?? parseTargetMonth(afterAmount);
       const description = cleanExpenseSegment(segment, amount);
 
       return {
         amount,
         description,
         category: inferCategory(description),
+        month: target?.month,
+        targetStatus: target?.status,
+        monthLabel: target?.label,
       };
     })
     .filter((entry): entry is ParsedExpenseEntry => entry != null);
@@ -570,7 +668,7 @@ function cleanRevenueSegment(segment: string, amount: number) {
 
 function parseMultipleRevenueEntries(text: string): Array<{ amount: number; description: string }> {
   const matches = Array.from(text.matchAll(MONEY_PATTERN)).filter(
-    (match) => !/\bdia\s*$/i.test(text.slice(Math.max(0, (match.index ?? 0) - 6), match.index)),
+    (match) => !isIgnoredMoneyMatch(text, match),
   );
 
   if (matches.length < 2) return [];
@@ -597,7 +695,11 @@ function parseMultipleRevenueEntries(text: string): Array<{ amount: number; desc
 }
 
 function isAddToBalanceIntent(text: string) {
-  return includesAny(text, ADD_TO_BALANCE_WORDS) && !includesAny(text, EXPENSE_WORDS);
+  return (
+    includesAny(text, ADD_TO_BALANCE_WORDS) &&
+    includesAny(text, ["saldo", "receita", "entrada", "ganho", "ganhos"]) &&
+    !includesAny(text, EXPENSE_WORDS)
+  );
 }
 
 function isoDateDaysAgo(days: number) {
@@ -626,7 +728,7 @@ function formatSummary(month: string) {
   return `Em ${monthLabel(month)}, você gastou **${formatBRL(s.spent)}** em ${s.count} lançamento${s.count === 1 ? "" : "s"}.\n\nRenda recorrente recebida nesta competência: **${formatBRL(s.recurringIncome)}**. Receitas extras do mês: **${formatBRL(s.extraIncome)}**. Saldo disponível acumulado: **${formatBRL(s.balance)}**.${fixedText}${limitText}${categoryText}`;
 }
 
-function formatExpenseConfirmation(expense: Expense, month: string) {
+function formatExpenseConfirmation(expense: Expense, month: string, isFuture = false) {
   const s = summarize(getFinanceState(), month);
   const limitText =
     s.spendingLimit == null
@@ -637,7 +739,11 @@ function formatExpenseConfirmation(expense: Expense, month: string) {
           ? `\n\nAtenção: você já usou **${s.limitUsedPercent}%** do seu limite. Ainda restam **${formatBRL(Math.max(0, s.limitRemaining ?? 0))}**.`
           : `\n\nVocê usou **${s.limitUsedPercent}%** do limite e ainda tem **${formatBRL(Math.max(0, s.limitRemaining ?? 0))}** para gastar dentro do teto definido.`;
 
-  return `Pronto, registrei a despesa de **${formatBRL(expense.amount)}** em ${expense.category}.\n\nTotal gasto no período: **${formatBRL(s.spent)}**. Saldo disponível: **${formatBRL(s.balance)}**.${limitText}`;
+  const futureText = isFuture
+    ? `\n\nComo esse lançamento ficou para **${monthLabel(month)}**, ele não foi descontado do saldo atual. Ele será considerado nas projeções e no saldo quando essa competência chegar.`
+    : "";
+
+  return `Pronto, registrei a despesa de **${formatBRL(expense.amount)}** em ${expense.category} para **${monthLabel(month)}**.\n\nTotal gasto no período: **${formatBRL(s.spent)}**. Saldo disponível: **${formatBRL(s.balance)}**.${limitText}${futureText}`;
 }
 
 function formatRevenueConfirmation(revenue: Revenue, month: string) {
@@ -770,31 +876,70 @@ function registerMultipleRevenues(text: string, month: string) {
   ].join("\n");
 }
 
-function registerExpense(text: string, amount: number, month: string) {
+function registerExpenseForEntry(entry: ParsedExpenseEntry, fallbackMonth: string) {
+  const targetMonth = entry.month ?? fallbackMonth;
   const expense = financeActions.addExpense({
-    amount,
-    category: inferCategory(text),
-    description: cleanDescription(text, amount),
-    date: month === monthKey(localISODate()) ? null : `${month}-01`,
+    amount: entry.amount,
+    category: entry.category,
+    description: entry.description,
+    date: targetMonth === monthKey(localISODate()) ? null : `${targetMonth}-01`,
   });
 
-  return formatExpenseConfirmation(expense, month);
+  return expense;
+}
+
+function registerExpense(text: string, amount: number, month: string) {
+  const target = parseTargetMonth(text);
+  const description = cleanDescription(text, amount);
+  const category = inferCategory(stripTargetMonthText(text));
+
+  if (target?.status === "past-explicit") {
+    return `Entendi a despesa de **${formatBRL(amount)}**, mas **${target.label}** já passou.\n\nPara manter o histórico financeiro consistente, só consigo cadastrar novas despesas na competência atual ou em períodos futuros.`;
+  }
+
+  if (target?.status === "ambiguous-past") {
+    financeActions.setPendingAction({
+      type: "futureExpense",
+      amount,
+      description,
+      category,
+      month: target.month,
+      createdAt: new Date().toISOString(),
+    });
+
+    return `Você está se referindo a **${target.label}**?\n\nComo esse mês já passou neste ano, preciso confirmar antes de registrar a despesa de **${formatBRL(amount)}** para essa competência futura. Responda **sim** para confirmar ou **não** para cancelar.`;
+  }
+
+  const targetMonth = target?.month ?? month;
+  const expense = financeActions.addExpense({
+    amount,
+    category,
+    description,
+    date: targetMonth === monthKey(localISODate()) ? null : `${targetMonth}-01`,
+  });
+
+  return formatExpenseConfirmation(expense, targetMonth, targetMonth > monthKey(localISODate()));
 }
 
 function registerMultipleExpenses(text: string, month: string) {
   const entries = parseMultipleExpenseEntries(text);
   if (entries.length < 2) return null;
 
-  const expenses = entries.map((entry) =>
-    financeActions.addExpense({
-      amount: entry.amount,
-      category: entry.category,
-      description: entry.description,
-      date: month === monthKey(localISODate()) ? null : `${month}-01`,
-    }),
-  );
+  const pastExplicit = entries.find((entry) => entry.targetStatus === "past-explicit");
+  if (pastExplicit) {
+    return `Encontrei uma despesa para **${pastExplicit.monthLabel}**, mas essa competência já passou.\n\nPara manter o histórico consistente, cadastros pelo chat só podem ser feitos na competência atual ou em períodos futuros.`;
+  }
+
+  const ambiguous = entries.find((entry) => entry.targetStatus === "ambiguous-past");
+  if (ambiguous) {
+    return `Encontrei um lançamento para **${ambiguous.monthLabel}**, mas preciso que você confirme o ano com mais clareza antes de cadastrar múltiplas despesas.\n\nTente enviar novamente especificando o ano, por exemplo: \`R$ 20 para ${ambiguous.monthLabel}\`.`;
+  }
+
+  const expenses = entries.map((entry) => registerExpenseForEntry(entry, month));
   const total = expenses.reduce((sum, expense) => sum + expense.amount, 0);
-  const s = summarize(getFinanceState(), month);
+  const months = Array.from(new Set(expenses.map((expense) => monthKey(expense.date)))).sort();
+  const summaryMonth = months.length === 1 ? months[0] : month;
+  const s = summarize(getFinanceState(), summaryMonth);
   const limitText =
     s.spendingLimit == null
       ? ""
@@ -807,9 +952,11 @@ function registerMultipleExpenses(text: string, month: string) {
   return [
     `Pronto, registrei **${expenses.length} despesas** no total de **${formatBRL(total)}**:`,
     "",
-    ...expenses.map((expense) => `- ${expenseLine(expense)}`),
+    ...expenses.map((expense) => `- ${expenseLine(expense)} (${monthLabel(monthKey(expense.date))})`),
     "",
-    `Total gasto no período: **${formatBRL(s.spent)}**. Saldo disponível: **${formatBRL(s.balance)}**.${limitText}`,
+    months.some((entryMonth) => entryMonth > monthKey(localISODate()))
+      ? `Lançamentos futuros não foram descontados do saldo atual. Eles entram nas projeções e passam a impactar o saldo quando a competência correspondente chegar.`
+      : `Total gasto no período: **${formatBRL(s.spent)}**. Saldo disponível: **${formatBRL(s.balance)}**.${limitText}`,
   ].join("\n");
 }
 
@@ -877,7 +1024,29 @@ function removeExpense(text: string, month: string) {
 function answerPendingAction(text: string, month: string) {
   const state = getFinanceState();
   const pending = state.pendingAction;
-  if (!pending || pending.type !== "deleteExpense") return null;
+  if (!pending) return null;
+
+  if (pending.type === "futureExpense") {
+    if (isDenial(text)) {
+      financeActions.setPendingAction(null);
+      return "Tudo certo, não registrei essa despesa futura.";
+    }
+
+    if (!isConfirmation(text)) return null;
+
+    const expense = registerExpenseForEntry(
+      {
+        amount: pending.amount,
+        description: pending.description,
+        category: pending.category,
+        month: pending.month,
+      },
+      month,
+    );
+    financeActions.setPendingAction(null);
+
+    return formatExpenseConfirmation(expense, pending.month, pending.month > monthKey(localISODate()));
+  }
 
   const expense = state.expenses.find((item) => item.id === pending.expenseId);
   if (!expense) {
@@ -893,6 +1062,7 @@ function answerPendingAction(text: string, month: string) {
   if (!isConfirmation(text)) return null;
 
   financeActions.removeExpense(expense.id);
+  financeActions.setPendingAction(null);
   const s = summarize(getFinanceState(), pending.month);
 
   return `Pronto, excluí **${expenseLine(expense)}**.\n\nTotal de ${monthLabel(pending.month)} agora: **${formatBRL(s.spent)}**. Saldo disponível: **${formatBRL(s.balance)}**.`;
@@ -942,7 +1112,8 @@ function isFixedExpenseListRequest(text: string) {
 
 function listFixedExpenses(month: string) {
   const fixedExpenses = getFinanceState()
-    .fixedExpenses.slice()
+    .fixedExpenses.filter((expense) => !expense.canceledAt)
+    .slice()
     .sort((a, b) => a.payday - b.payday || a.description.localeCompare(b.description, "pt-BR"));
 
   if (!fixedExpenses.length) {
@@ -1068,7 +1239,7 @@ export function answerLocally(
   const normalized = normalize(text);
   const recentText = normalize(recentConversationText(context));
   const standaloneAmount = parseStandaloneExpenseAmount(text);
-  const amount = standaloneAmount ?? parseMoney(text);
+  const amount = standaloneAmount ?? parseMoneyValues(text)[0] ?? null;
   const vagueBalanceFollowUp = isVagueFollowUpAboutBalance(normalized);
   const pendingResponse = answerPendingAction(text, month);
 

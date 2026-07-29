@@ -93,6 +93,7 @@ type RecentLaunch =
   | {
       kind: "fixedExpense";
       id: string;
+      occurrenceId: string;
       description: string;
       amount: number;
       date: string;
@@ -235,6 +236,9 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const [visibleLaunchCount, setVisibleLaunchCount] = useState(RECENT_LAUNCH_PAGE_SIZE);
   const [fixedExpenseModalOpen, setFixedExpenseModalOpen] = useState(false);
   const [selectedFixedExpense, setSelectedFixedExpense] = useState<FixedExpense | null>(null);
+  const [selectedFixedOccurrence, setSelectedFixedOccurrence] = useState<
+    Extract<RecentLaunch, { kind: "fixedExpense" }> | null
+  >(null);
   const [editDescription, setEditDescription] = useState("");
   const [editAmount, setEditAmount] = useState("");
   const [editCategory, setEditCategory] = useState<string>("Geral");
@@ -253,6 +257,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const monthOptions = useMemo(() => chatMonthKeys(state), [state]);
   const recentCutoff = isoDateDaysAgo(38);
   const today = localISODate();
+  const activeFixedExpenses = state.fixedExpenses.filter((expense) => !expense.canceledAt);
   const recentExpenses: RecentLaunch[] = state.expenses
     .filter((expense) => expense.date >= recentCutoff && expense.date <= today)
     .map((expense) => ({ ...expense, kind: "expense" }));
@@ -274,11 +279,18 @@ function DashboardContent({ state }: { state: FinanceState }) {
           }))
       : [];
   const recentFixedExpenses: RecentLaunch[] = monthKeysInRange(recentCutoff, today)
-    .flatMap((month) => fixedExpenseOccurrencesForMonth(state.fixedExpenses, month))
+    .flatMap((month) =>
+      fixedExpenseOccurrencesForMonth(
+        state.fixedExpenses,
+        month,
+        state.deletedFixedExpenseOccurrences,
+      ),
+    )
     .filter((expense) => expense.date >= recentCutoff && expense.date <= today)
     .map((expense) => ({
       kind: "fixedExpense",
       id: `fixed-${expense.id}`,
+      occurrenceId: expense.id,
       description: expense.description,
       amount: expense.amount,
       date: expense.date,
@@ -602,8 +614,15 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const deleteSelectedFixedExpense = () => {
     if (!selectedFixedExpense) return;
     financeActions.removeFixedExpense(selectedFixedExpense.id);
-    toast.success("Despesa fixa excluída.");
+    toast.success("Recorrência cancelada. Débitos já vencidos foram preservados.");
     closeFixedExpense();
+  };
+
+  const deleteFixedOccurrence = () => {
+    if (!selectedFixedOccurrence) return;
+    financeActions.removeFixedExpenseOccurrence(selectedFixedOccurrence.occurrenceId);
+    toast.success("Débito de despesa fixa removido do histórico.");
+    setSelectedFixedOccurrence(null);
   };
 
   return (
@@ -832,14 +851,14 @@ function DashboardContent({ state }: { state: FinanceState }) {
           </Button>
         </div>
 
-        {state.fixedExpenses.length === 0 ? (
+        {activeFixedExpenses.length === 0 ? (
           <p className="mt-4 rounded-2xl bg-secondary/50 px-3 py-3 text-[13px] leading-relaxed text-muted-foreground">
             Nenhuma despesa fixa cadastrada. Use este espaço para aluguel, internet, assinaturas,
             parcelas e outros compromissos recorrentes.
           </p>
         ) : (
           <ul className="mt-3 divide-y divide-border/60">
-            {state.fixedExpenses
+            {activeFixedExpenses
               .slice()
               .sort((a, b) => a.payday - b.payday)
               .map((expense) => (
@@ -1084,9 +1103,49 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
                         </p>
                       </div>
-                      <span className="shrink-0 px-2 text-[14px] font-semibold text-rose-700 tabular-nums">
-                        {formatBRL(entry.amount)}
-                      </span>
+                      <div className="flex shrink-0 items-center gap-1.5 px-2">
+                        <span className="text-[14px] font-semibold text-rose-700 tabular-nums">
+                          {formatBRL(entry.amount)}
+                        </span>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="size-7 rounded-full text-rose-600/70 hover:bg-rose-100/70 hover:text-rose-700"
+                              aria-label="Excluir débito desta despesa fixa"
+                              title="Excluir este débito"
+                              onClick={() => setSelectedFixedOccurrence(entry)}
+                            >
+                              <Trash2 className="size-3.5" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent className="rounded-[20px]">
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Excluir este débito?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Isso remove apenas este lançamento de despesa fixa do histórico e
+                                devolve o valor ao saldo. A recorrência cadastrada não será alterada.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter className="gap-2 sm:space-x-0">
+                              <AlertDialogCancel
+                                className="mt-0 rounded-xl"
+                                onClick={() => setSelectedFixedOccurrence(null)}
+                              >
+                                Cancelar
+                              </AlertDialogCancel>
+                              <AlertDialogAction
+                                className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                onClick={deleteFixedOccurrence}
+                              >
+                                Excluir débito
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
                     </div>
                   )}
                 </li>
@@ -1448,8 +1507,8 @@ function DashboardContent({ state }: { state: FinanceState }) {
                     <AlertDialogHeader>
                       <AlertDialogTitle>Excluir esta despesa fixa?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Essa ação remove a recorrência e atualiza saldo, limite, gráficos e
-                        projeções. Não dá para desfazer.
+                        Essa ação cancela apenas a recorrência para os próximos períodos. Débitos
+                        que já aconteceram continuam no histórico financeiro.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="gap-2 sm:space-x-0">

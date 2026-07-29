@@ -57,6 +57,7 @@ export type FixedExpense = {
   payday: number;
   startsAtMonth: string;
   createdAt: string;
+  canceledAt?: string;
 };
 
 export type FixedExpenseOccurrence = {
@@ -76,12 +77,21 @@ export type Revenue = {
   createdAt: string;
 };
 
-export type PendingAssistantAction = {
-  type: "deleteExpense";
-  expenseId: string;
-  month: string;
-  createdAt: string;
-};
+export type PendingAssistantAction =
+  | {
+      type: "deleteExpense";
+      expenseId: string;
+      month: string;
+      createdAt: string;
+    }
+  | {
+      type: "futureExpense";
+      amount: number;
+      description: string;
+      category: string;
+      month: string;
+      createdAt: string;
+    };
 
 export type FinanceState = {
   assistantName: string;
@@ -91,6 +101,7 @@ export type FinanceState = {
   pendingAction: PendingAssistantAction | null;
   expenses: Expense[];
   fixedExpenses: FixedExpense[];
+  deletedFixedExpenseOccurrences: string[];
   revenues: Revenue[];
   incomeOverrides: IncomeOverride[];
   messages: UIMessage[];
@@ -119,6 +130,7 @@ const initialState: FinanceState = {
   pendingAction: null,
   expenses: [],
   fixedExpenses: [],
+  deletedFixedExpenseOccurrences: [],
   revenues: [],
   incomeOverrides: [],
   messages: [],
@@ -181,7 +193,14 @@ function rawImportedState(input: unknown): Partial<FinanceState> {
     throw new Error("Arquivo inválido.");
   }
 
-  for (const key of ["expenses", "fixedExpenses", "revenues", "incomeOverrides", "messages"] as const) {
+  for (const key of [
+    "expenses",
+    "fixedExpenses",
+    "deletedFixedExpenseOccurrences",
+    "revenues",
+    "incomeOverrides",
+    "messages",
+  ] as const) {
     if (key in candidate && !Array.isArray(candidate[key])) {
       throw new Error("Arquivo inválido.");
     }
@@ -229,7 +248,15 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
       : monthKey(expense.createdAt?.slice(0, 10) || localISODate()),
     description: expense.description?.trim() || "Despesa fixa",
     createdAt: expense.createdAt || new Date().toISOString(),
+    canceledAt: expense.canceledAt || undefined,
   }));
+  const deletedFixedExpenseOccurrences = Array.from(
+    new Set(
+      (parsed.deletedFixedExpenseOccurrences ?? []).filter(
+        (occurrenceId): occurrenceId is string => typeof occurrenceId === "string" && occurrenceId.length > 0,
+      ),
+    ),
+  );
   const revenues = (parsed.revenues ?? []).map((revenue) => ({
     ...revenue,
     amount: normalizeMoney(revenue.amount),
@@ -281,6 +308,7 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
     pendingAction: parsed.pendingAction ?? null,
     expenses,
     fixedExpenses,
+    deletedFixedExpenseOccurrences,
     revenues,
     incomeOverrides,
     messages: parsed.messages ?? [],
@@ -526,7 +554,10 @@ export const financeActions = {
             }
           : e,
       ),
-      pendingAction: s.pendingAction?.expenseId === id ? null : s.pendingAction,
+      pendingAction:
+        s.pendingAction?.type === "deleteExpense" && s.pendingAction.expenseId === id
+          ? null
+          : s.pendingAction,
     });
   },
   updateFixedExpense(id: string, patch: Partial<Omit<FixedExpense, "id" | "createdAt">>) {
@@ -559,12 +590,30 @@ export const financeActions = {
     write({
       ...s,
       expenses: s.expenses.filter((e) => e.id !== id),
-      pendingAction: s.pendingAction?.expenseId === id ? null : s.pendingAction,
+      pendingAction:
+        s.pendingAction?.type === "deleteExpense" && s.pendingAction.expenseId === id
+          ? null
+          : s.pendingAction,
     });
   },
   removeFixedExpense(id: string) {
     const s = getFinanceState();
-    write({ ...s, fixedExpenses: s.fixedExpenses.filter((expense) => expense.id !== id) });
+    write({
+      ...s,
+      fixedExpenses: s.fixedExpenses.map((expense) =>
+        expense.id === id ? { ...expense, canceledAt: localISODate() } : expense,
+      ),
+    });
+  },
+  removeFixedExpenseOccurrence(occurrenceId: string) {
+    if (!occurrenceId) return;
+    const s = getFinanceState();
+    write({
+      ...s,
+      deletedFixedExpenseOccurrences: Array.from(
+        new Set([...s.deletedFixedExpenseOccurrences, occurrenceId]),
+      ),
+    });
   },
   updateRevenue(id: string, patch: Partial<Omit<Revenue, "id" | "createdAt">>) {
     const s = getFinanceState();
@@ -905,20 +954,27 @@ export function plannedRecurringIncomeForMonth(
 export function fixedExpenseOccurrencesForMonth(
   fixedExpenses: FixedExpense[],
   month = currentMonthKey(),
+  deletedOccurrenceIds: string[] = [],
 ): FixedExpenseOccurrence[] {
   const [year, monthIndex] = month.split("-").map(Number);
   if (!year || !monthIndex) return [];
 
   return fixedExpenses
     .filter((expense) => month >= expense.startsAtMonth)
-    .map((expense) => ({
-      id: `${expense.id}:${month}`,
-      fixedExpenseId: expense.id,
-      description: expense.description,
-      amount: expense.amount,
-      category: expense.category,
-      date: isoFromParts(year, monthIndex, expense.payday),
-    }))
+    .map((expense) => {
+      const date = isoFromParts(year, monthIndex, expense.payday);
+      return {
+        id: `${expense.id}:${month}`,
+        fixedExpenseId: expense.id,
+        description: expense.description,
+        amount: expense.amount,
+        category: expense.category,
+        date,
+        canceledAt: expense.canceledAt,
+      };
+    })
+    .filter((expense) => !expense.canceledAt || expense.date <= expense.canceledAt)
+    .filter((expense) => !deletedOccurrenceIds.includes(expense.id))
     .filter((expense) => expense.amount > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
 }
@@ -927,11 +983,12 @@ export function fixedExpensesDueUntil(
   fixedExpenses: FixedExpense[],
   date = new Date(),
   month = currentMonthKey(),
+  deletedOccurrenceIds: string[] = [],
 ) {
   const cutoff = localISODate(date);
   if (compareMonthToDate(month, date) > 0) return 0;
 
-  return fixedExpenseOccurrencesForMonth(fixedExpenses, month)
+  return fixedExpenseOccurrencesForMonth(fixedExpenses, month, deletedOccurrenceIds)
     .filter((expense) => compareMonthToDate(month, date) < 0 || expense.date <= cutoff)
     .reduce((sum, expense) => sum + expense.amount, 0);
 }
@@ -975,7 +1032,8 @@ export function cashBalanceUntil(
     startMonth,
     ...state.fixedExpenses.map((expense) => expense.startsAtMonth),
   ]), cutoffMonth).reduce(
-    (sum, month) => sum + fixedExpensesDueUntil(state.fixedExpenses, date, month),
+    (sum, month) =>
+      sum + fixedExpensesDueUntil(state.fixedExpenses, date, month, state.deletedFixedExpenseOccurrences),
     0,
   );
   const spent = manualSpent + fixedSpent;
@@ -1043,7 +1101,11 @@ export function summarize(state: FinanceState, month = currentMonthKey()) {
     state.incomeOverrides,
   );
   const monthExpenses = state.expenses.filter((e) => monthKey(e.date) === month);
-  const monthFixedExpenses = fixedExpenseOccurrencesForMonth(state.fixedExpenses, month);
+  const monthFixedExpenses = fixedExpenseOccurrencesForMonth(
+    state.fixedExpenses,
+    month,
+    state.deletedFixedExpenseOccurrences,
+  );
   const dueFixedExpenses = monthFixedExpenses.filter((expense) => expense.date <= cutoff);
   const monthRevenues = state.revenues.filter((r) => monthKey(r.date) === month);
   const manualSpent = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
@@ -1138,7 +1200,12 @@ export function lastMonths(state: FinanceState, n = 6) {
       total: state.expenses
         .filter((e) => monthKey(e.date) === key)
         .reduce((s, e) => s + e.amount, 0) +
-        fixedExpensesDueUntil(state.fixedExpenses, dateFromIso(monthEndISO(key)), key),
+        fixedExpensesDueUntil(
+          state.fixedExpenses,
+          dateFromIso(monthEndISO(key)),
+          key,
+          state.deletedFixedExpenseOccurrences,
+        ),
     });
   }
   return out;

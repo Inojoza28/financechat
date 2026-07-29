@@ -26,6 +26,11 @@ function navigate(to: string) {
 
 export function AppNav({ title }: { title?: string }) {
   const [pathname, setPathname] = useState(() => normalizePath(window.location.pathname));
+  const canScrollToTop = Boolean(title);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
 
   useEffect(() => {
     const update = () => setPathname(normalizePath(window.location.pathname));
@@ -40,7 +45,16 @@ export function AppNav({ title }: { title?: string }) {
   return (
     <header className="glass sticky top-0 z-30 border-b border-border/50">
       <div className="mx-auto flex h-[58px] w-full max-w-3xl items-center justify-between gap-3 px-4">
-        <div className="flex min-w-0 items-center gap-2.5">
+        <button
+          type="button"
+          onClick={canScrollToTop ? scrollToTop : undefined}
+          disabled={!canScrollToTop}
+          className={cn(
+            "flex min-w-0 items-center gap-2.5 rounded-xl text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/25",
+            canScrollToTop ? "cursor-pointer hover:text-primary" : "cursor-default",
+          )}
+          aria-label={canScrollToTop ? "Voltar ao topo da página" : undefined}
+        >
           <img
             src={logo}
             alt="HeyFin chat"
@@ -49,7 +63,7 @@ export function AppNav({ title }: { title?: string }) {
             className="size-7 drop-shadow-sm"
           />
           <span className="truncate text-[15px] font-semibold">{title ?? "HeyFin"}</span>
-        </div>
+        </button>
         <nav className="flex items-center gap-1 rounded-full border border-border/40 bg-secondary/65 p-1">
           {links.map(({ to, label, icon: Icon }) => {
             const active = pathname === to;
