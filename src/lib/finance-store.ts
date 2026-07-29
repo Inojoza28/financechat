@@ -139,6 +139,81 @@ function earliestMonthKey(keys: string[]) {
   return keys.filter(isValidMonthKey).sort()[0] ?? currentMonthKey();
 }
 
+function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
+  const fallbackMonth = currentMonthKey();
+  const messagesByMonth =
+    parsed.messagesByMonth && typeof parsed.messagesByMonth === "object"
+      ? parsed.messagesByMonth
+      : parsed.messages?.length
+        ? { [fallbackMonth]: parsed.messages }
+        : {};
+  const expenses = (parsed.expenses ?? []).map((expense) => ({
+    ...expense,
+    amount: expense.adjustment ? normalizeSignedMoney(expense.amount) : normalizeMoney(expense.amount),
+    category: normalizeCategory(expense.category),
+    description: expense.description?.trim() || "Despesa",
+    date: expense.date || localISODate(),
+    createdAt: expense.createdAt || new Date().toISOString(),
+  }));
+  const fixedExpenses = (parsed.fixedExpenses ?? []).map((expense) => ({
+    ...expense,
+    amount: normalizeMoney(expense.amount),
+    category: normalizeCategory(expense.category),
+    payday: clampPayday(expense.payday, 1),
+    startsAtMonth: isValidMonthKey(expense.startsAtMonth)
+      ? expense.startsAtMonth
+      : monthKey(expense.createdAt?.slice(0, 10) || localISODate()),
+    description: expense.description?.trim() || "Despesa fixa",
+    createdAt: expense.createdAt || new Date().toISOString(),
+  }));
+  const revenues = (parsed.revenues ?? []).map((revenue) => ({
+    ...revenue,
+    amount: normalizeMoney(revenue.amount),
+    description: revenue.description?.trim() || "Receita extra",
+    date: revenue.date || localISODate(),
+    createdAt: revenue.createdAt || new Date().toISOString(),
+  }));
+  const income = parsed.income
+    ? {
+        ...parsed.income,
+        autoDeposit: parsed.income.autoDeposit ?? true,
+        startsAtMonth:
+          parsed.income.startsAtMonth ??
+          earliestMonthKey([
+            currentMonthKey(),
+            ...expenses.map((expense) => monthKey(expense.date)),
+            ...revenues.map((revenue) => monthKey(revenue.date)),
+          ]),
+        payday: clampPayday(parsed.income.payday, 1),
+        firstPaymentDate: parsed.income.firstPaymentDate,
+        amount:
+          parsed.income.period === "biweekly" &&
+          (parsed.income.firstAmount != null || parsed.income.secondAmount != null)
+            ? normalizeMoney((parsed.income.firstAmount ?? 0) + (parsed.income.secondAmount ?? 0))
+            : normalizeMoney(parsed.income.amount),
+      }
+    : null;
+  const spendingLimit =
+    parsed.spendingLimit != null
+      ? normalizeMoney(parsed.spendingLimit)
+      : initialState.spendingLimit;
+
+  return {
+    ...initialState,
+    ...parsed,
+    assistantName: parsed.assistantName?.trim().slice(0, 30) || initialState.assistantName,
+    currency: parsed.currency || initialState.currency,
+    income,
+    spendingLimit,
+    pendingAction: parsed.pendingAction ?? null,
+    expenses,
+    fixedExpenses,
+    revenues,
+    messages: parsed.messages ?? [],
+    messagesByMonth,
+  };
+}
+
 let state: FinanceState = initialState;
 let hydrated = false;
 const listeners = new Set<() => void>();
@@ -149,67 +224,7 @@ function read(): FinanceState {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) return initialState;
     const parsed = JSON.parse(raw) as Partial<FinanceState>;
-    const fallbackMonth = currentMonthKey();
-    const messagesByMonth =
-      parsed.messagesByMonth && typeof parsed.messagesByMonth === "object"
-        ? parsed.messagesByMonth
-        : parsed.messages?.length
-          ? { [fallbackMonth]: parsed.messages }
-          : {};
-    const expenses = (parsed.expenses ?? []).map((expense) => ({
-      ...expense,
-      amount: expense.adjustment ? normalizeSignedMoney(expense.amount) : normalizeMoney(expense.amount),
-      category: normalizeCategory(expense.category),
-    }));
-    const fixedExpenses = (parsed.fixedExpenses ?? []).map((expense) => ({
-      ...expense,
-      amount: normalizeMoney(expense.amount),
-      category: normalizeCategory(expense.category),
-      payday: clampPayday(expense.payday, 1),
-      startsAtMonth: isValidMonthKey(expense.startsAtMonth)
-        ? expense.startsAtMonth
-        : monthKey(expense.createdAt?.slice(0, 10) || localISODate()),
-      description: expense.description?.trim() || "Despesa fixa",
-    }));
-    const revenues = (parsed.revenues ?? []).map((revenue) => ({
-      ...revenue,
-      amount: normalizeMoney(revenue.amount),
-      description: revenue.description?.trim() || "Receita extra",
-    }));
-    const income = parsed.income
-      ? {
-          ...parsed.income,
-          autoDeposit: parsed.income.autoDeposit ?? true,
-          startsAtMonth:
-            parsed.income.startsAtMonth ??
-            earliestMonthKey([
-              currentMonthKey(),
-              ...expenses.map((expense) => monthKey(expense.date)),
-              ...revenues.map((revenue) => monthKey(revenue.date)),
-            ]),
-          payday: clampPayday(parsed.income.payday, 1),
-          firstPaymentDate: parsed.income.firstPaymentDate,
-          amount:
-            parsed.income.period === "biweekly" &&
-            (parsed.income.firstAmount != null || parsed.income.secondAmount != null)
-              ? normalizeMoney((parsed.income.firstAmount ?? 0) + (parsed.income.secondAmount ?? 0))
-              : parsed.income.amount,
-        }
-      : null;
-    const spendingLimit =
-      parsed.spendingLimit != null
-        ? normalizeMoney(parsed.spendingLimit)
-        : initialState.spendingLimit;
-    return {
-      ...initialState,
-      ...parsed,
-      income,
-      spendingLimit,
-      expenses,
-      fixedExpenses,
-      revenues,
-      messagesByMonth,
-    };
+    return normalizeFinanceState(parsed);
   } catch {
     return initialState;
   }
@@ -506,6 +521,14 @@ export const financeActions = {
       messages: [],
       messagesByMonth: { ...s.messagesByMonth, [month]: [] },
     });
+  },
+  importState(input: unknown) {
+    if (!input || typeof input !== "object") {
+      throw new Error("Arquivo inválido.");
+    }
+    const candidate = input as { data?: Partial<FinanceState> };
+    const rawState = candidate.data && typeof candidate.data === "object" ? candidate.data : input;
+    write(normalizeFinanceState(rawState as Partial<FinanceState>));
   },
 };
 
@@ -1049,6 +1072,19 @@ export function buildTXT(state: FinanceState) {
     "",
   ];
   return lines.join("\n");
+}
+
+export function buildJSON(state: FinanceState) {
+  return JSON.stringify(
+    {
+      app: "HeyFin",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      data: state,
+    },
+    null,
+    2,
+  );
 }
 
 export function downloadFile(filename: string, content: string, mime: string) {

@@ -1,17 +1,20 @@
 ﻿import {
   CalendarDays,
   Download,
+  FileJson,
   FileSpreadsheet,
   FileText,
   Gauge,
   RotateCcw,
   ShieldAlert,
   Trash2,
+  Upload,
   UserRound,
   WalletCards,
 } from "lucide-react";
-import { useEffect, useState, type ComponentType, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { toast } from "sonner";
+import { AppFooter } from "@/components/app-footer";
 import { AppNav } from "@/components/app-nav";
 import { SupportCallout } from "@/components/support-callout";
 import {
@@ -31,6 +34,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
   buildCSV,
+  buildJSON,
   buildTXT,
   downloadFile,
   financeActions,
@@ -82,6 +86,7 @@ function Section({
 
 function SettingsContent() {
   const state = useFinance();
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const [name, setName] = useState(state.assistantName);
   const [amount, setAmount] = useState(state.income ? String(state.income.amount) : "");
   const [period, setPeriod] = useState<IncomePeriod>(state.income?.period ?? "monthly");
@@ -95,6 +100,8 @@ function SettingsContent() {
   const [firstPayday, setFirstPayday] = useState(String(state.income?.firstPayday ?? 5));
   const [secondPayday, setSecondPayday] = useState(String(state.income?.secondPayday ?? 20));
   const [spendingLimit, setSpendingLimit] = useState(String(state.spendingLimit ?? ""));
+  const [pendingImport, setPendingImport] = useState<unknown>(null);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const suggestedLimit = recommendedSpendingLimit(state.income);
 
   const saveName = () => {
@@ -160,15 +167,42 @@ function SettingsContent() {
     toast.success("Limite sugerido aplicado.");
   };
 
-  const exportData = (kind: "csv" | "txt") => {
+  const exportData = (kind: "csv" | "txt" | "json") => {
     const s = getFinanceState();
     const stamp = new Date().toISOString().slice(0, 10);
     if (kind === "csv") {
       downloadFile(`finance-chat-${stamp}.csv`, `\uFEFF${buildCSV(s)}`, "text/csv");
+    } else if (kind === "json") {
+      downloadFile(`heyfin-backup-${stamp}.json`, buildJSON(s), "application/json");
     } else {
       downloadFile(`finance-chat-${stamp}.txt`, buildTXT(s), "text/plain");
     }
-    toast.success("Relatório gerado.");
+    toast.success(kind === "json" ? "Backup JSON exportado." : "Relatório gerado.");
+  };
+
+  const handleImportFile = async (file?: File) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      setPendingImport(parsed);
+      setImportDialogOpen(true);
+    } catch {
+      toast.error("Não consegui ler esse arquivo JSON.");
+    } finally {
+      if (importInputRef.current) importInputRef.current.value = "";
+    }
+  };
+
+  const confirmImport = () => {
+    try {
+      financeActions.importState(pendingImport);
+      setPendingImport(null);
+      setImportDialogOpen(false);
+      toast.success("Dados restaurados com sucesso.");
+    } catch {
+      toast.error("Esse arquivo não parece ser um backup válido do HeyFin.");
+    }
   };
 
   return (
@@ -401,27 +435,67 @@ function SettingsContent() {
 
       <Section
         icon={Download}
-        title="Exportar relatório"
-        description="Baixe receitas, despesas, saldos e resumos em um arquivo completo."
+        title="Exportar e importar"
+        description="Baixe relatórios ou salve um backup JSON para restaurar seus dados depois."
       >
-        <div className="grid gap-2 sm:grid-cols-[auto_auto_1fr] sm:items-center">
-          <Button
-            variant="outline"
-            className="w-full rounded-xl sm:w-auto"
-            onClick={() => exportData("csv")}
-          >
-            <FileSpreadsheet className="size-4" /> Planilha
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full rounded-xl sm:w-auto"
-            onClick={() => exportData("txt")}
-          >
-            <FileText className="size-4" /> Texto
-          </Button>
-          <span className="flex items-center justify-center gap-1.5 text-center text-[12px] text-muted-foreground sm:justify-start sm:text-left">
-            {state.expenses.length} despesas e {state.revenues.length} receitas extras registradas
-          </span>
+        <div className="grid gap-3">
+          <div className="rounded-2xl border border-primary/14 bg-primary/[0.035] p-3">
+            <div className="mb-3">
+              <p className="text-[13px] font-semibold text-foreground">Backup completo</p>
+              <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
+                Use JSON para salvar ou restaurar renda, despesas, receitas, conversas e ajustes.
+              </p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Button
+                variant="outline"
+                className="w-full rounded-xl border-primary/25 bg-surface text-primary hover:bg-primary/[0.06] hover:text-primary"
+                onClick={() => exportData("json")}
+              >
+                <FileJson className="size-4" /> Exportar JSON
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full rounded-xl bg-surface"
+                onClick={() => importInputRef.current?.click()}
+              >
+                <Upload className="size-4" /> Importar JSON
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[13px] font-semibold text-foreground">Baixar relatórios rápidos</p>
+              <p className="mt-0.5 text-[12px] text-muted-foreground">
+                Arquivos simples para consulta fora do HeyFin.
+              </p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Button
+                variant="outline"
+                className="w-full rounded-xl sm:w-auto"
+                onClick={() => exportData("csv")}
+              >
+                <FileSpreadsheet className="size-4" /> Planilha
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full rounded-xl sm:w-auto"
+                onClick={() => exportData("txt")}
+              >
+                <FileText className="size-4" /> Texto
+              </Button>
+            </div>
+          </div>
+
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={(event) => void handleImportFile(event.target.files?.[0])}
+          />
         </div>
       </Section>
 
@@ -489,6 +563,28 @@ function SettingsContent() {
           </AlertDialog>
         </div>
       </Section>
+      <AlertDialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <AlertDialogContent className="rounded-[20px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restaurar dados do backup?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Essa ação substituirá os dados atuais deste navegador pelo conteúdo do arquivo JSON
+              selecionado. Exporte um backup antes de continuar caso queira guardar o estado atual.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-2 sm:space-x-0">
+            <AlertDialogCancel
+              className="mt-0 rounded-xl"
+              onClick={() => setPendingImport(null)}
+            >
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction className="rounded-xl" onClick={confirmImport}>
+              Restaurar backup
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -500,7 +596,12 @@ export function SettingsPage() {
   return (
     <div className="min-h-[100dvh] bg-background">
       <AppNav title="Ajustes" />
-      {mounted ? <SettingsContent /> : null}
+      {mounted ? (
+        <>
+          <SettingsContent />
+          <AppFooter />
+        </>
+      ) : null}
     </div>
   );
 }

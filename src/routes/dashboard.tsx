@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { AppFooter } from "@/components/app-footer";
 import { AppNav } from "@/components/app-nav";
 import { FloatingCalculator } from "@/components/floating-calculator";
 import {
@@ -1131,6 +1132,7 @@ export function DashboardPage() {
       {mounted ? (
         <>
           <DashboardContent state={state} />
+          <AppFooter />
           <FloatingCalculator />
         </>
       ) : null}
