@@ -13,6 +13,7 @@
 import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { toast } from "sonner";
 import { AppNav } from "@/components/app-nav";
+import { SupportCallout } from "@/components/support-callout";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -178,6 +179,8 @@ function SettingsContent() {
           Configure sua renda, exporte seus dados e controle o que fica salvo no navegador.
         </p>
       </div>
+
+      <SupportCallout />
 
       <Section
         icon={UserRound}

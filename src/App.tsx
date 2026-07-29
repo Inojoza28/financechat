@@ -2,15 +2,19 @@ import { useEffect, useState } from "react";
 import { ChatPage } from "@/routes";
 import { DashboardPage } from "@/routes/dashboard";
 import { SettingsPage } from "@/routes/settings";
+import { SupportPage } from "@/routes/support";
 
 const titles: Record<string, string> = {
   "/": "HeyFin",
   "/dashboard": "Dashboard financeiro - HeyFin",
   "/settings": "Ajustes - HeyFin",
+  "/support": "Apoiar - HeyFin",
 };
 
 function normalizePath(pathname: string) {
-  if (pathname === "/dashboard" || pathname === "/settings") return pathname;
+  if (pathname === "/dashboard" || pathname === "/settings" || pathname === "/support") {
+    return pathname;
+  }
   return "/";
 }
 
@@ -55,5 +59,6 @@ export function App() {
 
   if (pathname === "/dashboard") return <DashboardPage />;
   if (pathname === "/settings") return <SettingsPage />;
+  if (pathname === "/support") return <SupportPage />;
   return <ChatPage />;
 }

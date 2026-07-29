@@ -16,6 +16,7 @@
   type IncomePeriod,
   type Revenue,
 } from "@/lib/finance-store";
+import { SUPPORT_COMMAND } from "@/lib/support";
 
 type AssistantResult = {
   text: string;
@@ -256,6 +257,10 @@ const CATEGORY_HINTS: Record<string, string[]> = {
   Educação: ["curso", "faculdade", "livro", "escola", "educacao"],
   Compras: ["roupa", "tenis", "shopping", "presente", "compra"],
 };
+
+function answerSupportCommand() {
+  return `Claro!!! 💙\n\nSe você está gostando do HeyFin e acredita na ideia do projeto, seu apoio pode fazer uma grande diferença.\n\nA contribuição é **totalmente voluntária**, mas cada ajuda fortalece o projeto e me ajuda a continuar evoluindo, melhorando e trazendo novas funcionalidades para você.\n\nSe o HeyFin está sendo útil no seu dia a dia e você quiser fazer parte dessa evolução, vou ficar muito feliz com o seu apoio! 🚀\n\n**Pix para apoiar o HeyFin:**`;
+}
 
 export function parseMoney(text: string): number | null {
   const match = text.match(
@@ -914,6 +919,10 @@ export function answerLocally(
   const amount = standaloneAmount ?? parseMoney(text);
   const vagueBalanceFollowUp = isVagueFollowUpAboutBalance(normalized);
   const pendingResponse = answerPendingAction(text, month);
+
+  if (text.trim() === SUPPORT_COMMAND) {
+    return { text: answerSupportCommand() };
+  }
 
   if (pendingResponse) {
     return { text: pendingResponse };

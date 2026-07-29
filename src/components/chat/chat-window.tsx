@@ -1,7 +1,18 @@
 ﻿import type { UIMessage } from "ai";
-import { ArrowRight, Info } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  ArrowRight,
+  Check,
+  Copy,
+  HeartHandshake,
+  Info,
+  KeyRound,
+  Loader2,
+  Mic,
+  Square,
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStickToBottomContext } from "use-stick-to-bottom";
+import { toast } from "sonner";
 import {
   Conversation,
   ConversationContent,
@@ -34,6 +45,7 @@ import {
   useFinance,
 } from "@/lib/finance-store";
 import { answerLocally, buildTextMessage } from "@/lib/local-assistant";
+import { MASKED_PIX_KEY, PIX_KEY, SUPPORT_COMMAND } from "@/lib/support";
 
 const logo = "/assets/imgs/logo.png";
 
@@ -46,6 +58,36 @@ const SUGGESTIONS = [
 
 const FALLBACK_RESPONSE =
   "Desculpe, não consegui entender ou responder essa solicitação. Posso ajudar você a registrar receitas e despesas, consultar seu saldo, fazer projeções financeiras, mostrar seus gastos e responder dúvidas relacionadas ao seu controle financeiro. Tente reformular a pergunta com um valor, período ou objetivo financeiro.";
+
+type SpeechRecognitionResultLike = {
+  results: ArrayLike<ArrayLike<{ transcript: string }>>;
+};
+
+type SpeechRecognitionErrorLike = {
+  error?: string;
+};
+
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  maxAlternatives: number;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+  onstart: (() => void) | null;
+  onresult: ((event: SpeechRecognitionResultLike) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorLike) => void) | null;
+  onend: (() => void) | null;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+type WindowWithSpeechRecognition = Window &
+  typeof globalThis & {
+    SpeechRecognition?: SpeechRecognitionConstructor;
+    webkitSpeechRecognition?: SpeechRecognitionConstructor;
+  };
 
 function TypingIndicator() {
   return (
@@ -76,9 +118,12 @@ function ScrollToLatestMessage({ trigger }: { trigger: string }) {
 
 export function ChatWindow() {
   const state = useFinance();
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const [input, setInput] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(() => currentMonthKey());
   const [status, setStatus] = useState<"ready" | "submitted">("ready");
+  const [voiceStatus, setVoiceStatus] = useState<"idle" | "recording" | "processing">("idle");
+  const [copiedSupportMessageId, setCopiedSupportMessageId] = useState<string | null>(null);
   const [messages, setMessages] = useState<UIMessage[]>(
     () => getFinanceState().messagesByMonth[currentMonthKey()] ?? [],
   );
@@ -91,6 +136,12 @@ export function ChatWindow() {
   useEffect(() => {
     financeActions.setMessagesForMonth(selectedMonth, messages);
   }, [messages, selectedMonth]);
+
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.abort();
+    };
+  }, []);
 
   const busy = status === "submitted";
   const summary = summarize(state, selectedMonth);
@@ -121,6 +172,86 @@ export function ChatWindow() {
       ]);
       setStatus("ready");
     }, responseDelay);
+  };
+
+  const copyPixKey = async (messageId: string) => {
+    try {
+      await navigator.clipboard.writeText(PIX_KEY);
+      setCopiedSupportMessageId(messageId);
+      toast.success("Chave Pix copiada! 💙 Obrigado por fortalecer o HeyFin.");
+      window.setTimeout(() => setCopiedSupportMessageId(null), 2200);
+    } catch {
+      toast.error("Não consegui copiar a chave Pix.");
+    }
+  };
+
+  const insertSupportCommand = () => {
+    setInput(SUPPORT_COMMAND);
+  };
+
+  const toggleVoiceInput = () => {
+    if (voiceStatus === "recording") {
+      setVoiceStatus("processing");
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    const SpeechRecognition =
+      (window as WindowWithSpeechRecognition).SpeechRecognition ??
+      (window as WindowWithSpeechRecognition).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      toast.error("Seu navegador não suporta transcrição por voz.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognitionRef.current = recognition;
+    recognition.lang = "pt-BR";
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.maxAlternatives = 1;
+
+    let receivedTranscript = false;
+
+    recognition.onstart = () => {
+      setVoiceStatus("recording");
+    };
+
+    recognition.onresult = (event) => {
+      receivedTranscript = true;
+      const transcript = Array.from(event.results)
+        .map((result) => result[0]?.transcript ?? "")
+        .join(" ")
+        .trim();
+
+      if (!transcript) {
+        toast.error("Não consegui transcrever o áudio.");
+        return;
+      }
+
+      setInput((current) => [current.trim(), transcript].filter(Boolean).join(" "));
+      toast.success("Transcrição concluída.");
+    };
+
+    recognition.onerror = (event) => {
+      const blocked = event.error === "not-allowed" || event.error === "service-not-allowed";
+      toast.error(blocked ? "Permita o uso do microfone para transcrever." : "Não consegui captar o áudio.");
+      setVoiceStatus("idle");
+    };
+
+    recognition.onend = () => {
+      recognitionRef.current = null;
+      setVoiceStatus("idle");
+      if (!receivedTranscript) return;
+    };
+
+    try {
+      recognition.start();
+    } catch {
+      setVoiceStatus("idle");
+      toast.error("Não consegui iniciar a gravação.");
+    }
   };
 
   return (
@@ -187,7 +318,7 @@ export function ChatWindow() {
       </div>
 
       <Conversation className="min-h-0 flex-1">
-        <ConversationContent className="mx-auto min-h-full w-full max-w-3xl gap-5 px-4 pt-3 pb-2 sm:pt-5">
+        <ConversationContent className="mx-auto min-h-full w-full max-w-3xl gap-5 px-4 pt-3 pb-5 sm:pt-5 sm:pb-6">
           <ScrollToLatestMessage trigger={`${selectedMonth}:${messages.length}:${status}`} />
           {messages.length === 0 ? (
             <div className="animate-fade-in flex min-h-full flex-1 flex-col items-center justify-center px-2 py-4 text-center sm:py-12">
@@ -224,6 +355,9 @@ export function ChatWindow() {
                 .map((part) => (part.type === "text" ? part.text : ""))
                 .join("");
               if (!text.trim()) return null;
+              const showSupportCopy =
+                message.role === "assistant" && text.includes("Pix para apoiar o HeyFin");
+              const supportCopied = copiedSupportMessageId === message.id;
               return (
                 <Message key={message.id} from={message.role} className="animate-rise">
                   <MessageContent
@@ -234,6 +368,32 @@ export function ChatWindow() {
                     }
                   >
                     <MessageResponse>{text}</MessageResponse>
+                    {showSupportCopy && (
+                      <div className="mt-3 max-w-full rounded-2xl border border-primary/15 bg-primary/[0.035] p-3 shadow-[0_14px_34px_-28px_oklch(0.45_0.12_245_/_42%)]">
+                        <p className="mb-2 inline-flex items-center gap-1.5 text-[12px] font-semibold text-foreground/75">
+                          <KeyRound className="size-3.5 text-primary" />
+                          Chave Pix
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="h-auto w-full justify-between gap-2 rounded-2xl border-primary/15 bg-surface px-3 py-2.5 text-left shadow-[0_8px_22px_-20px_oklch(0.25_0.03_260_/_30%)] hover:border-primary/25 hover:bg-background"
+                          onClick={() => copyPixKey(message.id)}
+                          aria-label="Copiar chave Pix completa"
+                        >
+                          <code className="min-w-0 flex-1 break-all text-[12.5px] font-medium leading-relaxed text-foreground">
+                            {MASKED_PIX_KEY}
+                          </code>
+                          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                            {supportCopied ? (
+                              <Check className="size-4" />
+                            ) : (
+                              <Copy className="size-4" />
+                            )}
+                          </span>
+                        </Button>
+                      </div>
+                    )}
                   </MessageContent>
                 </Message>
               );
@@ -273,14 +433,63 @@ export function ChatWindow() {
               placeholder={`Fale com o ${state.assistantName}...`}
               className="text-[16px] sm:text-[15px]"
             />
-            <PromptInputFooter className="justify-end border-0 p-2">
-              <PromptInputSubmit
-                status={status}
-                disabled={!input.trim() && !busy}
-                className="rounded-full"
-              >
-                {status === "ready" ? <ArrowRight className="size-4" /> : undefined}
-              </PromptInputSubmit>
+            <PromptInputFooter className="justify-between gap-2 border-0 p-2">
+              <div className="flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="size-9 rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground"
+                  onClick={insertSupportCommand}
+                  disabled={busy}
+                  aria-label="Inserir comando para apoiar o projeto"
+                  title="Apoiar o projeto"
+                >
+                  <HeartHandshake className="size-4" />
+                </Button>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant={voiceStatus === "recording" ? "default" : "ghost"}
+                  size="icon-sm"
+                  className="size-9 rounded-full"
+                  onClick={toggleVoiceInput}
+                  disabled={busy || voiceStatus === "processing"}
+                  aria-label={
+                    voiceStatus === "recording"
+                      ? "Parar gravação"
+                      : "Transcrever mensagem por áudio"
+                  }
+                  title={
+                    voiceStatus === "recording"
+                      ? "Parar gravação"
+                      : voiceStatus === "processing"
+                        ? "Processando áudio"
+                        : "Falar mensagem"
+                  }
+                >
+                  {voiceStatus === "processing" ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : voiceStatus === "recording" ? (
+                    <Square className="size-3.5" />
+                  ) : (
+                    <Mic className="size-4" />
+                  )}
+                </Button>
+                {voiceStatus !== "idle" && (
+                  <span className="hidden text-[12px] text-muted-foreground sm:inline">
+                    {voiceStatus === "recording" ? "Gravando..." : "Processando..."}
+                  </span>
+                )}
+                <PromptInputSubmit
+                  status={status}
+                  disabled={!input.trim() && !busy}
+                  className="rounded-full"
+                >
+                  {status === "ready" ? <ArrowRight className="size-4" /> : undefined}
+                </PromptInputSubmit>
+              </div>
             </PromptInputFooter>
           </PromptInput>
         </div>

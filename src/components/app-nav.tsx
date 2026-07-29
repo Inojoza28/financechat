@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { MessageCircle, PieChart, Settings } from "lucide-react";
+import { HeartHandshake, MessageCircle, PieChart, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const logo = "/assets/imgs/logo.png";
@@ -8,10 +8,13 @@ const links = [
   { to: "/", label: "Chat", icon: MessageCircle },
   { to: "/dashboard", label: "Dashboard", icon: PieChart },
   { to: "/settings", label: "Ajustes", icon: Settings },
+  { to: "/support", label: "Apoiar", icon: HeartHandshake },
 ] as const;
 
 function normalizePath(pathname: string) {
-  if (pathname === "/dashboard" || pathname === "/settings") return pathname;
+  if (pathname === "/dashboard" || pathname === "/settings" || pathname === "/support") {
+    return pathname;
+  }
   return "/";
 }
 
