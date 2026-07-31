@@ -887,50 +887,54 @@ function parseMixedFinancialEntries(text: string): ParsedMixedEntry[] {
 
   if (matches.length < 2) return [];
 
-  return matches
-    .map<ParsedMixedEntry | null>((match, index) => {
-      const amount = parseMoney(match[0]);
-      if (!amount) return null;
+  const entries: ParsedMixedEntry[] = [];
+  let activeKind: "revenue" | "expense" | null = null;
 
-      const matchStart = match.index ?? 0;
-      const currentEnd = matchStart + match[0].length;
-      const previousEnd =
-        index === 0 ? 0 : (matches[index - 1].index ?? 0) + matches[index - 1][0].length;
-      const nextStart = matches[index + 1]?.index ?? text.length;
-      const localPrefix = text.slice(previousEnd, matchStart);
-      const prefix = prefixFromLastFinancialAction(
-        index === 0 ? text.slice(0, matchStart) : localPrefix,
-      );
-      const suffix = trimBeforeNextFinancialAction(text.slice(currentEnd, nextStart));
-      const kind = lastFinancialAction(prefix);
-      const segment = `${prefix} ${suffix}`;
+  matches.forEach((match, index) => {
+    const amount = parseMoney(match[0]);
+    if (!amount) return;
 
-      if (kind === "revenue") {
-        return {
-          kind,
-          amount,
-          description: cleanRevenueSegment(segment, amount),
-        };
-      }
+    const matchStart = match.index ?? 0;
+    const currentEnd = matchStart + match[0].length;
+    const previousEnd =
+      index === 0 ? 0 : (matches[index - 1].index ?? 0) + matches[index - 1][0].length;
+    const nextStart = matches[index + 1]?.index ?? text.length;
+    const localPrefix = text.slice(previousEnd, matchStart);
+    const explicitPrefix = prefixFromLastFinancialAction(
+      index === 0 ? text.slice(0, matchStart) : localPrefix,
+    );
+    const suffix = trimBeforeNextFinancialAction(text.slice(currentEnd, nextStart));
+    const explicitKind = lastFinancialAction(explicitPrefix);
+    const kind = explicitKind ?? activeKind;
+    const segment = `${explicitKind ? explicitPrefix : ""} ${suffix}`;
 
-      if (kind === "expense") {
-        const target = parseTargetMonth(segment) ?? parseTargetMonth(suffix);
-        const description = cleanExpenseSegment(segment, amount);
+    if (!kind) return;
+    activeKind = kind;
 
-        return {
-          kind,
-          amount,
-          description,
-          category: inferCategory(description),
-          month: target?.month,
-          targetStatus: target?.status,
-          monthLabel: target?.label,
-        };
-      }
+    if (kind === "revenue") {
+      entries.push({
+        kind,
+        amount,
+        description: cleanRevenueSegment(segment, amount),
+      });
+      return;
+    }
 
-      return null;
-    })
-    .filter((entry): entry is ParsedMixedEntry => entry != null);
+    const target = parseTargetMonth(segment) ?? parseTargetMonth(suffix);
+    const description = cleanExpenseSegment(segment, amount);
+
+    entries.push({
+      kind,
+      amount,
+      description,
+      category: inferCategory(description),
+      month: target?.month,
+      targetStatus: target?.status,
+      monthLabel: target?.label,
+    });
+  });
+
+  return entries;
 }
 
 function isAddToBalanceIntent(text: string) {
