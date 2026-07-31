@@ -1180,6 +1180,58 @@ export function forecastNextMonth(state: FinanceState, fromMonth = currentMonthK
   };
 }
 
+export function forecastFutureMonth(state: FinanceState, targetMonth: string, from = new Date()) {
+  const today = localISODate(from);
+  const currentMonth = monthKey(today);
+  const targetEnd = monthEndISO(targetMonth);
+  const months = monthKeysBetween(currentMonth, targetMonth);
+  const currentCash = cashBalanceUntil(state, from);
+  const projectedCash = cashBalanceUntilISO(state, targetEnd);
+  const recurringIncome = months
+    .flatMap((month) =>
+      recurringIncomeOccurrencesForMonth(state.income, state.incomeOverrides, month),
+    )
+    .filter((payment) => payment.date > today && payment.date <= targetEnd)
+    .reduce((sum, payment) => sum + payment.amount, 0);
+  const extraIncome = state.revenues
+    .filter((revenue) => revenue.date > today && revenue.date <= targetEnd)
+    .reduce((sum, revenue) => sum + revenue.amount, 0);
+  const manualExpenses = state.expenses
+    .filter((expense) => expense.date > today && expense.date <= targetEnd)
+    .reduce((sum, expense) => sum + expense.amount, 0);
+  const fixedExpenseOccurrences = months
+    .flatMap((month) =>
+      fixedExpenseOccurrencesForMonth(
+        state.fixedExpenses,
+        month,
+        state.deletedFixedExpenseOccurrences,
+        state.fixedExpenseOccurrenceOverrides,
+      ),
+    )
+    .filter((expense) => expense.date > today && expense.date <= targetEnd);
+  const fixedExpenses = fixedExpenseOccurrences.reduce((sum, expense) => sum + expense.amount, 0);
+  const futureExpenseCount = state.expenses.filter(
+    (expense) => expense.date > today && expense.date <= targetEnd,
+  ).length;
+  const fixedExpenseCount = fixedExpenseOccurrences.length;
+
+  return {
+    currentMonth,
+    targetMonth,
+    targetEnd,
+    currentBalance: currentCash.balance,
+    projectedBalance: projectedCash.balance,
+    recurringIncome,
+    extraIncome,
+    projectedIncome: recurringIncome + extraIncome,
+    manualExpenses,
+    fixedExpenses,
+    projectedExpenses: manualExpenses + fixedExpenses,
+    futureExpenseCount,
+    fixedExpenseCount,
+  };
+}
+
 export function summarize(state: FinanceState, month = currentMonthKey()) {
   const cutoff = cutoffForMonth(month);
   const cutoffDate = dateFromIso(cutoff);

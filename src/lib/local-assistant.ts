@@ -1,6 +1,7 @@
 ﻿import {
   cashBalanceUntil,
   financeActions,
+  forecastFutureMonth,
   forecastNextMonth,
   formatBRL,
   getFinanceState,
@@ -129,6 +130,22 @@ const NEXT_MONTH_WORDS = [
   "quanto vai sobrar para o proximo",
   "nao gastar mais nada",
   "se eu nao gastar",
+];
+
+const FUTURE_MONTH_PROJECTION_WORDS = [
+  "quanto vou ficar",
+  "quanto vou ter",
+  "quanto terei",
+  "quanto vai ficar",
+  "qual sera meu saldo",
+  "saldo no mes",
+  "saldo em",
+  "saldo para",
+  "vou ficar no mes",
+  "vou ter no mes",
+  "projecao",
+  "estimativa",
+  "disponivel",
 ];
 
 const SPENDING_UNTIL_NEXT_MONTH_WORDS = [
@@ -1253,6 +1270,62 @@ function answerNextMonthProjection(month: string) {
   return `Se nada mais for registrado até lá, você deve chegar a **${formatBRL(forecast.projectedAvailable)}** em ${monthLabel(forecast.nextMonth)}.\n\nComo cheguei nesse valor:\n- Saldo acumulado projetado ao fim de ${monthLabel(forecast.currentMonth)}: **${formatBRL(forecast.projectedStartBalance)}**\n- Renda recorrente de ${monthLabel(forecast.nextMonth)}: **${formatBRL(forecast.plannedRecurringIncome)}**\n- Receitas extras já registradas para ${monthLabel(forecast.nextMonth)}: **${formatBRL(forecast.extraIncome)}**\n- Despesas registradas e fixas previstas para ${monthLabel(forecast.nextMonth)}: **${expenseText}**\n\nCálculo: ${formatBRL(forecast.projectedStartBalance)} + ${formatBRL(forecast.projectedIncome)} - ${formatBRL(forecast.registeredExpenses)} = **${formatBRL(forecast.projectedAvailable)}**.`;
 }
 
+function isFutureMonthProjectionRequest(text: string) {
+  return (
+    includesAny(text, FUTURE_MONTH_PROJECTION_WORDS) &&
+    (text.includes("quanto") ||
+      text.includes("saldo") ||
+      text.includes("projecao") ||
+      text.includes("estimativa") ||
+      text.includes("disponivel") ||
+      text.includes("ficar") ||
+      text.includes("ter"))
+  );
+}
+
+function answerSpecificFutureMonthProjection(text: string) {
+  const target = parseTargetMonth(text);
+  if (!target || !isFutureMonthProjectionRequest(normalize(text))) return null;
+
+  const currentMonth = monthKey(localISODate());
+
+  if (target.status === "past-explicit") {
+    return `**${target.label}** já passou. Posso consultar o histórico dessa competência, mas projeções são calculadas para o mês atual ou meses futuros.`;
+  }
+
+  if (target.status === "ambiguous-past") {
+    return `Você quer uma projeção para **${target.label}**?\n\nComo esse mês já passou neste ano, me diga o ano desejado para eu calcular com segurança.`;
+  }
+
+  if (target.month <= currentMonth) return null;
+
+  const forecast = forecastFutureMonth(getFinanceState(), target.month);
+  const incomeText =
+    forecast.projectedIncome > 0
+      ? `${formatBRL(forecast.projectedIncome)} em receitas previstas`
+      : "nenhuma receita prevista";
+  const expenseText =
+    forecast.projectedExpenses > 0
+      ? `${formatBRL(forecast.projectedExpenses)} em despesas previstas`
+      : "nenhuma despesa prevista";
+  const details: string[] = [];
+  if (forecast.recurringIncome > 0) {
+    details.push(`renda automática: **${formatBRL(forecast.recurringIncome)}**`);
+  }
+  if (forecast.extraIncome > 0) {
+    details.push(`receitas extras já registradas: **${formatBRL(forecast.extraIncome)}**`);
+  }
+  if (forecast.manualExpenses > 0) {
+    details.push(`lançamentos futuros: **${formatBRL(forecast.manualExpenses)}**`);
+  }
+  if (forecast.fixedExpenses > 0) {
+    details.push(`despesas fixas: **${formatBRL(forecast.fixedExpenses)}**`);
+  }
+  const detailsText = details.length ? `\n\nDetalhes considerados: ${details.join("; ")}.` : "";
+
+  return `Projetando até o fim de **${monthLabel(forecast.targetMonth)}**, a estimativa é você ficar com **${formatBRL(forecast.projectedBalance)}**.\n\nComo cheguei nesse valor:\n- Saldo acumulado atual: **${formatBRL(forecast.currentBalance)}**\n- Entradas previstas até lá: **${incomeText}**\n- Saídas previstas até lá: **${expenseText}**\n\nCálculo: ${formatBRL(forecast.currentBalance)} + ${formatBRL(forecast.projectedIncome)} - ${formatBRL(forecast.projectedExpenses)} = **${formatBRL(forecast.projectedBalance)}**.${detailsText}\n\nEssa é uma projeção: novos gastos, receitas ou ajustes podem mudar esse valor.`;
+}
+
 function answerSpendingUntilNextMonth(month: string) {
   const state = getFinanceState();
   const current = summarize(state, month);
@@ -1356,6 +1429,11 @@ export function answerLocally(
 
   if (includesAny(normalized, REMOVE_WORDS)) {
     return { text: removeExpense(text, month) };
+  }
+
+  const futureMonthProjection = answerSpecificFutureMonthProjection(text);
+  if (futureMonthProjection) {
+    return { text: futureMonthProjection };
   }
 
   if (
