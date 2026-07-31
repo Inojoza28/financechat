@@ -1326,8 +1326,8 @@ function DashboardContent({ state }: { state: FinanceState }) {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-3">
-            <div>
+          <div className="grid min-w-0 gap-3">
+            <div className="min-w-0">
               <Label htmlFor="expense-description" className="text-[13px]">
                 Descrição
               </Label>
@@ -1339,8 +1339,8 @@ function DashboardContent({ state }: { state: FinanceState }) {
               />
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
+            <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+              <div className="min-w-0">
                 <Label htmlFor="expense-amount" className="text-[13px]">
                   Valor
                 </Label>
@@ -1352,7 +1352,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                   className="mt-1.5 rounded-xl"
                 />
               </div>
-              <div>
+              <div className="min-w-0">
                 <Label htmlFor="expense-date" className="text-[13px]">
                   Data
                 </Label>
@@ -1361,12 +1361,12 @@ function DashboardContent({ state }: { state: FinanceState }) {
                   type="date"
                   value={editDate}
                   onChange={(event) => setEditDate(event.target.value)}
-                  className="mt-1.5 rounded-xl"
+                  className="mt-1.5 min-w-0 max-w-full rounded-xl"
                 />
               </div>
             </div>
 
-            <div>
+            <div className="min-w-0">
               <Label htmlFor="expense-category" className="text-[13px]">
                 Categoria
               </Label>
