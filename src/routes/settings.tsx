@@ -558,7 +558,8 @@ function SettingsContent() {
                     </p>
                     <p className="mt-1.5">
                       Guarde esse arquivo em um local seguro. Se precisar recuperar seus dados
-                      depois, use <strong>Importar JSON</strong> e selecione o backup salvo.
+                      depois ou acessar em outro dispositivo, use <strong>Importar JSON</strong> e
+                      selecione o backup salvo.
                     </p>
                   </div>
                 </div>
