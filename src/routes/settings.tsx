@@ -1,12 +1,15 @@
 ﻿import {
   CalendarDays,
+  Check,
   Download,
   FileJson,
   FileSpreadsheet,
   FileText,
   Gauge,
+  Moon,
   RotateCcw,
   ShieldAlert,
+  SunMedium,
   Trash2,
   Upload,
   UserRound,
@@ -217,6 +220,80 @@ function SettingsContent() {
       </div>
 
       <SupportCallout />
+
+      <Section
+        icon={state.theme === "dark" ? Moon : SunMedium}
+        title="Aparência"
+        description="Escolha entre modo claro e modo dark. O HeyFin mantém sua preferência neste navegador."
+      >
+        <div className="grid gap-2 rounded-2xl border border-border/60 bg-background/65 p-2 shadow-[inset_0_1px_0_hsl(var(--foreground)/0.04)] sm:grid-cols-2 dark:bg-surface-muted/45 dark:shadow-none">
+          {[
+            {
+              theme: "light" as const,
+              title: "Modo Claro",
+              description: "Visual limpo para o dia.",
+              icon: SunMedium,
+            },
+            {
+              theme: "dark" as const,
+              title: "Modo Dark",
+              description: "Mais confortável com pouca luz.",
+              icon: Moon,
+            },
+          ].map((option) => {
+            const selected = state.theme === option.theme;
+            const OptionIcon = option.icon;
+
+            return (
+              <button
+                key={option.theme}
+                type="button"
+                onClick={() => {
+                  if (selected) return;
+                  financeActions.setTheme(option.theme);
+                  toast.success(
+                    option.theme === "dark" ? "Modo Dark ativado." : "Modo claro ativado.",
+                  );
+                }}
+                className={`group flex min-w-0 items-center gap-3 rounded-xl border px-3 py-3 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 ${
+                  selected
+                    ? "border-primary/35 bg-primary/[0.08] text-foreground shadow-[0_8px_24px_hsl(var(--primary)/0.10)] dark:border-primary/35 dark:bg-primary/[0.12] dark:shadow-none"
+                    : "border-transparent bg-transparent text-muted-foreground hover:border-border/70 hover:bg-surface/80 hover:text-foreground dark:hover:border-border/60 dark:hover:bg-background/35"
+                }`}
+                aria-pressed={selected}
+              >
+                <span
+                  className={`flex size-9 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                    selected
+                      ? "border-primary/25 bg-primary text-primary-foreground"
+                      : "border-border/60 bg-surface text-muted-foreground group-hover:text-foreground dark:bg-background/45"
+                  }`}
+                >
+                  <OptionIcon className="size-4" />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13px] font-semibold leading-tight">
+                    {option.title}
+                  </span>
+                  <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">
+                    {option.description}
+                  </span>
+                </span>
+                <span
+                  className={`flex size-6 shrink-0 items-center justify-center rounded-full transition-colors ${
+                    selected
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary/70 text-transparent group-hover:text-muted-foreground"
+                  }`}
+                  aria-hidden="true"
+                >
+                  <Check className="size-3.5" />
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </Section>
 
       <Section
         icon={UserRound}
@@ -575,10 +652,7 @@ function SettingsContent() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="gap-2 sm:space-x-0">
-            <AlertDialogCancel
-              className="mt-0 rounded-xl"
-              onClick={() => setPendingImport(null)}
-            >
+            <AlertDialogCancel className="mt-0 rounded-xl" onClick={() => setPendingImport(null)}>
               Cancelar
             </AlertDialogCancel>
             <AlertDialogAction className="rounded-xl" onClick={confirmImport}>

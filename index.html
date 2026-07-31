@@ -36,6 +36,23 @@
     <link rel="icon" href="/assets/imgs/logo.png" type="image/png" />
     <link rel="apple-touch-icon" href="/assets/imgs/logo.png" />
     <title>HeyFin</title>
+    <script>
+      (() => {
+        try {
+          const raw = localStorage.getItem("finance-chat.v1");
+          const theme = raw ? JSON.parse(raw)?.theme : "light";
+          const isDark = theme === "dark";
+          document.documentElement.classList.toggle("dark", isDark);
+          document.documentElement.style.colorScheme = isDark ? "dark" : "light";
+          document
+            .querySelector('meta[name="theme-color"]')
+            ?.setAttribute("content", isDark ? "#181b22" : "#1684d8");
+        } catch {
+          document.documentElement.classList.remove("dark");
+          document.documentElement.style.colorScheme = "light";
+        }
+      })();
+    </script>
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",

@@ -2,6 +2,7 @@
 import type { UIMessage } from "ai";
 
 export type IncomePeriod = "monthly" | "biweekly" | "weekly";
+export type ThemeMode = "light" | "dark";
 
 export type Income = {
   amount: number;
@@ -103,6 +104,7 @@ export type PendingAssistantAction =
 
 export type FinanceState = {
   assistantName: string;
+  theme: ThemeMode;
   currency: string;
   income: Income | null;
   spendingLimit: number | null;
@@ -133,6 +135,7 @@ const STORAGE_KEY = "finance-chat.v1";
 
 const initialState: FinanceState = {
   assistantName: "Fin",
+  theme: "light",
   currency: "BRL",
   income: null,
   spendingLimit: null,
@@ -331,6 +334,7 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
     ...initialState,
     ...parsed,
     assistantName: parsed.assistantName?.trim().slice(0, 30) || initialState.assistantName,
+    theme: parsed.theme === "dark" ? "dark" : "light",
     currency: parsed.currency || initialState.currency,
     income,
     spendingLimit,
@@ -769,6 +773,9 @@ export const financeActions = {
   setAssistantName(name: string) {
     write({ ...getFinanceState(), assistantName: name.trim().slice(0, 30) || "Fin" });
   },
+  setTheme(theme: ThemeMode) {
+    write({ ...getFinanceState(), theme });
+  },
   setMessages(messages: UIMessage[]) {
     write({ ...getFinanceState(), messages });
   },
@@ -781,7 +788,7 @@ export const financeActions = {
     });
   },
   resetAll() {
-    write({ ...initialState });
+    write({ ...initialState, theme: getFinanceState().theme });
   },
   resetConversation() {
     const month = currentMonthKey();

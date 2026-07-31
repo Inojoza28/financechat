@@ -235,17 +235,18 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
   const [expenseModalOpen, setExpenseModalOpen] = useState(false);
   const [incomeEntryModalOpen, setIncomeEntryModalOpen] = useState(false);
-  const [selectedIncomeEntry, setSelectedIncomeEntry] = useState<
-    Extract<RecentLaunch, { kind: "revenue" | "income" }> | null
-  >(null);
+  const [selectedIncomeEntry, setSelectedIncomeEntry] = useState<Extract<
+    RecentLaunch,
+    { kind: "revenue" | "income" }
+  > | null>(null);
   const [visibleLaunchCount, setVisibleLaunchCount] = useState(RECENT_LAUNCH_PAGE_SIZE);
   const [fixedExpenseModalOpen, setFixedExpenseModalOpen] = useState(false);
   const [selectedFixedExpense, setSelectedFixedExpense] = useState<FixedExpense | null>(null);
-  const [selectedFixedOccurrence, setSelectedFixedOccurrence] = useState<
-    Extract<RecentLaunch, { kind: "fixedExpense" }> | null
-  >(null);
-  const [visibleFutureLaunchCount, setVisibleFutureLaunchCount] =
-    useState(RECENT_LAUNCH_PAGE_SIZE);
+  const [selectedFixedOccurrence, setSelectedFixedOccurrence] = useState<Extract<
+    RecentLaunch,
+    { kind: "fixedExpense" }
+  > | null>(null);
+  const [visibleFutureLaunchCount, setVisibleFutureLaunchCount] = useState(RECENT_LAUNCH_PAGE_SIZE);
   const [editDescription, setEditDescription] = useState("");
   const [editAmount, setEditAmount] = useState("");
   const [editCategory, setEditCategory] = useState<string>("Geral");
@@ -670,10 +671,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
       return;
     }
 
-    financeActions.updateFixedExpenseOccurrenceAmount(
-      selectedFixedOccurrence.occurrenceId,
-      amount,
-    );
+    financeActions.updateFixedExpenseOccurrenceAmount(selectedFixedOccurrence.occurrenceId, amount);
     toast.success("Valor do débito atualizado.");
     closeFixedOccurrence();
   };
@@ -1038,7 +1036,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
             aria-expanded={!futureLaunchesCollapsed}
             aria-controls="future-launches-list"
           >
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-700 ring-1 ring-sky-100">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-700 ring-1 ring-sky-100 dark:bg-primary/[0.12] dark:text-primary dark:ring-primary/20">
               <CalendarClock className="size-4" />
             </span>
             <span className="min-w-0">
@@ -1056,7 +1054,11 @@ function DashboardContent({ state }: { state: FinanceState }) {
             variant="ghost"
             className="size-8 rounded-full text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
             onClick={toggleFutureLaunches}
-            aria-label={futureLaunchesCollapsed ? "Mostrar lançamentos futuros" : "Ocultar lançamentos futuros"}
+            aria-label={
+              futureLaunchesCollapsed
+                ? "Mostrar lançamentos futuros"
+                : "Ocultar lançamentos futuros"
+            }
             title={futureLaunchesCollapsed ? "Mostrar" : "Ocultar"}
           >
             <ChevronDown
@@ -1080,7 +1082,8 @@ function DashboardContent({ state }: { state: FinanceState }) {
                 <ul className="space-y-1">
                   {visibleFutureLaunches.map((expense, index) => {
                     const previous = visibleFutureLaunches[index - 1];
-                    const showMonth = !previous || monthKey(previous.date) !== monthKey(expense.date);
+                    const showMonth =
+                      !previous || monthKey(previous.date) !== monthKey(expense.date);
 
                     return (
                       <li key={`future-${expense.id}`}>
@@ -1096,7 +1099,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                         <button
                           type="button"
                           onClick={() => openExpense(expense)}
-                          className="flex w-full items-center justify-between gap-3 rounded-xl bg-sky-50/35 py-2.5 text-left ring-1 ring-sky-100/60 transition-colors hover:bg-sky-50/60 focus-visible:bg-sky-50/60"
+                          className="flex w-full items-center justify-between gap-3 rounded-xl bg-sky-50/35 py-2.5 text-left ring-1 ring-sky-100/60 transition-colors hover:bg-sky-50/60 focus-visible:bg-sky-50/60 dark:bg-primary/[0.08] dark:ring-primary/20 dark:hover:bg-primary/[0.12] dark:focus-visible:bg-primary/[0.12]"
                         >
                           <div className="min-w-0 px-2">
                             <div className="flex min-w-0 items-center gap-2">
@@ -1105,7 +1108,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                               </p>
                               <Badge
                                 variant="outline"
-                                className="shrink-0 rounded-full border border-sky-200/75 bg-sky-100/65 px-2 py-0 text-[10px] font-medium text-sky-700 shadow-none"
+                                className="shrink-0 rounded-full border border-sky-200/75 bg-sky-100/65 px-2 py-0 text-[10px] font-medium text-sky-700 shadow-none dark:border-primary/25 dark:bg-primary/[0.14] dark:text-primary"
                               >
                                 Futuro
                               </Badge>
@@ -1115,9 +1118,9 @@ function DashboardContent({ state }: { state: FinanceState }) {
                               {new Date(`${expense.date}T12:00:00`).toLocaleDateString("pt-BR")}
                             </p>
                           </div>
-                          <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold text-sky-700 tabular-nums">
+                          <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold text-sky-700 tabular-nums dark:text-primary">
                             {formatBRL(expense.amount)}
-                            <Pencil className="size-3.5 text-sky-600/70" />
+                            <Pencil className="size-3.5 text-sky-600/70 dark:text-primary/75" />
                           </span>
                         </button>
                       </li>
@@ -1168,131 +1171,131 @@ function DashboardContent({ state }: { state: FinanceState }) {
         ) : (
           <div className="mt-3 space-y-3">
             <ul className="space-y-1">
-            {visibleRecentLaunches.map((entry, index) => {
-              const previous = visibleRecentLaunches[index - 1];
-              const showMonth = !previous || monthKey(previous.date) !== monthKey(entry.date);
+              {visibleRecentLaunches.map((entry, index) => {
+                const previous = visibleRecentLaunches[index - 1];
+                const showMonth = !previous || monthKey(previous.date) !== monthKey(entry.date);
 
-              return (
-                <li key={`${entry.kind}-${entry.id}`}>
-                  {showMonth && (
-                    <div className="flex items-center gap-2 px-2 pb-1 pt-2 first:pt-0">
-                      <span className="shrink-0 text-[10.5px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
-                        {monthLabel(monthKey(entry.date))}
-                      </span>
-                      <span className="h-px flex-1 bg-border/55" />
-                    </div>
-                  )}
+                return (
+                  <li key={`${entry.kind}-${entry.id}`}>
+                    {showMonth && (
+                      <div className="flex items-center gap-2 px-2 pb-1 pt-2 first:pt-0">
+                        <span className="shrink-0 text-[10.5px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
+                          {monthLabel(monthKey(entry.date))}
+                        </span>
+                        <span className="h-px flex-1 bg-border/55" />
+                      </div>
+                    )}
 
-                  {entry.kind === "expense" ? (
-                    <button
-                      type="button"
-                      onClick={() => openExpense(entry)}
-                      className="flex w-full items-center justify-between gap-3 rounded-xl py-2.5 text-left transition-colors hover:bg-secondary/60 focus-visible:bg-secondary/60"
-                    >
-                      <div className="min-w-0 px-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <p className="truncate text-[14px] font-medium">{entry.description}</p>
-                          {entry.manual && (
+                    {entry.kind === "expense" ? (
+                      <button
+                        type="button"
+                        onClick={() => openExpense(entry)}
+                        className="flex w-full items-center justify-between gap-3 rounded-xl py-2.5 text-left transition-colors hover:bg-secondary/60 focus-visible:bg-secondary/60"
+                      >
+                        <div className="min-w-0 px-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <p className="truncate text-[14px] font-medium">{entry.description}</p>
+                            {entry.manual && (
+                              <Badge
+                                variant="outline"
+                                className="shrink-0 rounded-full border border-sky-200/70 bg-sky-50 px-2 py-0 text-[10px] font-medium text-sky-700 shadow-none dark:border-primary/25 dark:bg-primary/[0.12] dark:text-primary"
+                              >
+                                Manual
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-[12px] text-muted-foreground">
+                            {entry.category} ·{" "}
+                            {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
+                          </p>
+                        </div>
+                        <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold tabular-nums">
+                          {formatBRL(entry.amount)}
+                          <Pencil className="size-3.5 text-muted-foreground" />
+                        </span>
+                      </button>
+                    ) : entry.kind === "revenue" ? (
+                      <button
+                        type="button"
+                        onClick={() => openIncomeEntry(entry)}
+                        className="flex w-full items-center justify-between gap-3 rounded-xl bg-emerald-50/40 py-2.5 text-left ring-1 ring-emerald-100/60 transition-colors hover:bg-emerald-50/65 focus-visible:bg-emerald-50/65 dark:bg-success/[0.08] dark:ring-success/20 dark:hover:bg-success/[0.12] dark:focus-visible:bg-success/[0.12]"
+                      >
+                        <div className="min-w-0 px-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <p className="truncate text-[14px] font-medium">{entry.description}</p>
                             <Badge
                               variant="outline"
-                              className="shrink-0 rounded-full border border-sky-200/70 bg-sky-50 px-2 py-0 text-[10px] font-medium text-sky-700 shadow-none"
+                              className="shrink-0 rounded-full border border-emerald-200/75 bg-emerald-100/65 px-2 py-0 text-[10px] font-medium text-emerald-700 shadow-none dark:border-success/25 dark:bg-success/[0.14] dark:text-success"
                             >
-                              Manual
+                              Receita extra
                             </Badge>
-                          )}
+                          </div>
+                          <p className="text-[12px] text-muted-foreground">
+                            Entrada ·{" "}
+                            {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
+                          </p>
                         </div>
-                        <p className="text-[12px] text-muted-foreground">
-                          {entry.category} ·{" "}
-                          {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
-                        </p>
-                      </div>
-                      <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold tabular-nums">
-                        {formatBRL(entry.amount)}
-                        <Pencil className="size-3.5 text-muted-foreground" />
-                      </span>
-                    </button>
-                  ) : entry.kind === "revenue" ? (
-                    <button
-                      type="button"
-                      onClick={() => openIncomeEntry(entry)}
-                      className="flex w-full items-center justify-between gap-3 rounded-xl bg-emerald-50/40 py-2.5 text-left ring-1 ring-emerald-100/60 transition-colors hover:bg-emerald-50/65 focus-visible:bg-emerald-50/65"
-                    >
-                      <div className="min-w-0 px-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <p className="truncate text-[14px] font-medium">{entry.description}</p>
-                          <Badge
-                            variant="outline"
-                            className="shrink-0 rounded-full border border-emerald-200/75 bg-emerald-100/65 px-2 py-0 text-[10px] font-medium text-emerald-700 shadow-none"
-                          >
-                            Receita extra
-                          </Badge>
+                        <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold text-emerald-700 tabular-nums dark:text-success">
+                          + {formatBRL(entry.amount)}
+                          <Pencil className="size-3.5 text-emerald-600/70 dark:text-success/75" />
+                        </span>
+                      </button>
+                    ) : entry.kind === "income" ? (
+                      <button
+                        type="button"
+                        onClick={() => openIncomeEntry(entry)}
+                        className="flex w-full items-center justify-between gap-3 rounded-xl bg-emerald-50/55 py-2.5 text-left ring-1 ring-emerald-100/70 transition-colors hover:bg-emerald-50/75 focus-visible:bg-emerald-50/75 dark:bg-success/[0.09] dark:ring-success/[0.22] dark:hover:bg-success/[0.13] dark:focus-visible:bg-success/[0.13]"
+                      >
+                        <div className="min-w-0 px-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <p className="truncate text-[14px] font-medium">{entry.description}</p>
+                            <Badge
+                              variant="outline"
+                              className="shrink-0 rounded-full border border-emerald-200/80 bg-emerald-100/80 px-2 py-0 text-[10px] font-medium text-emerald-700 shadow-none dark:border-success/[0.28] dark:bg-success/[0.16] dark:text-success"
+                            >
+                              Salário
+                            </Badge>
+                          </div>
+                          <p className="text-[12px] text-muted-foreground">
+                            {entry.category} ·{" "}
+                            {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
+                          </p>
                         </div>
-                        <p className="text-[12px] text-muted-foreground">
-                          Entrada ·{" "}
-                          {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
-                        </p>
-                      </div>
-                      <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold text-emerald-700 tabular-nums">
-                        + {formatBRL(entry.amount)}
-                        <Pencil className="size-3.5 text-emerald-600/70" />
-                      </span>
-                    </button>
-                  ) : entry.kind === "income" ? (
-                    <button
-                      type="button"
-                      onClick={() => openIncomeEntry(entry)}
-                      className="flex w-full items-center justify-between gap-3 rounded-xl bg-emerald-50/55 py-2.5 text-left ring-1 ring-emerald-100/70 transition-colors hover:bg-emerald-50/75 focus-visible:bg-emerald-50/75"
-                    >
-                      <div className="min-w-0 px-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <p className="truncate text-[14px] font-medium">{entry.description}</p>
-                          <Badge
-                            variant="outline"
-                            className="shrink-0 rounded-full border border-emerald-200/80 bg-emerald-100/80 px-2 py-0 text-[10px] font-medium text-emerald-700 shadow-none"
-                          >
-                            Salário
-                          </Badge>
+                        <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold text-emerald-700 tabular-nums dark:text-success">
+                          + {formatBRL(entry.amount)}
+                          <Pencil className="size-3.5 text-emerald-600/70 dark:text-success/75" />
+                        </span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => openFixedOccurrence(entry)}
+                        className="flex w-full items-center justify-between gap-3 rounded-xl bg-rose-50/45 py-2.5 text-left ring-1 ring-rose-100/70 transition-colors hover:bg-rose-50/70 focus-visible:bg-rose-50/70 dark:bg-destructive/[0.08] dark:ring-destructive/[0.22] dark:hover:bg-destructive/[0.12] dark:focus-visible:bg-destructive/[0.12]"
+                      >
+                        <div className="min-w-0 px-2">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <p className="truncate text-[14px] font-medium">{entry.description}</p>
+                            <Badge
+                              variant="outline"
+                              className="shrink-0 rounded-full border border-rose-200/80 bg-rose-100/75 px-2 py-0 text-[10px] font-medium text-rose-700 shadow-none dark:border-destructive/[0.28] dark:bg-destructive/[0.14] dark:text-destructive"
+                            >
+                              Despesa fixa
+                            </Badge>
+                          </div>
+                          <p className="text-[12px] text-muted-foreground">
+                            {entry.category} ·{" "}
+                            {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
+                          </p>
                         </div>
-                        <p className="text-[12px] text-muted-foreground">
-                          {entry.category} ·{" "}
-                          {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
-                        </p>
-                      </div>
-                      <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold text-emerald-700 tabular-nums">
-                        + {formatBRL(entry.amount)}
-                        <Pencil className="size-3.5 text-emerald-600/70" />
-                      </span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => openFixedOccurrence(entry)}
-                      className="flex w-full items-center justify-between gap-3 rounded-xl bg-rose-50/45 py-2.5 text-left ring-1 ring-rose-100/70 transition-colors hover:bg-rose-50/70 focus-visible:bg-rose-50/70"
-                    >
-                      <div className="min-w-0 px-2">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <p className="truncate text-[14px] font-medium">{entry.description}</p>
-                          <Badge
-                            variant="outline"
-                            className="shrink-0 rounded-full border border-rose-200/80 bg-rose-100/75 px-2 py-0 text-[10px] font-medium text-rose-700 shadow-none"
-                          >
-                            Despesa fixa
-                          </Badge>
-                        </div>
-                        <p className="text-[12px] text-muted-foreground">
-                          {entry.category} ·{" "}
-                          {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
-                        </p>
-                      </div>
-                      <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold text-rose-700 tabular-nums">
-                        {formatBRL(entry.amount)}
-                        <Pencil className="size-3.5 text-rose-600/70" />
-                      </span>
-                    </button>
-                  )}
-                </li>
-              );
-            })}
+                        <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold text-rose-700 tabular-nums dark:text-destructive">
+                          {formatBRL(entry.amount)}
+                          <Pencil className="size-3.5 text-rose-600/70 dark:text-destructive/75" />
+                        </span>
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
             {hasMoreRecentLaunches && (
               <div className="flex justify-center pt-1">
@@ -1321,8 +1324,8 @@ function DashboardContent({ state }: { state: FinanceState }) {
               {selectedExpenseIsFuture
                 ? "Ajuste esta despesa programada. Ela continua sem afetar o saldo atual enquanto permanecer em uma data futura."
                 : selectedExpense
-                ? "Ajuste os dados do lançamento. Os resumos e gráficos são atualizados na hora."
-                : "Adicione uma despesa manualmente. Ela aparecerá nos últimos lançamentos com identificação própria."}
+                  ? "Ajuste os dados do lançamento. Os resumos e gráficos são atualizados na hora."
+                  : "Adicione uma despesa manualmente. Ela aparecerá nos últimos lançamentos com identificação própria."}
             </DialogDescription>
           </DialogHeader>
 

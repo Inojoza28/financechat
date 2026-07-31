@@ -3,6 +3,7 @@ import { ChatPage } from "@/routes";
 import { DashboardPage } from "@/routes/dashboard";
 import { SettingsPage } from "@/routes/settings";
 import { SupportPage } from "@/routes/support";
+import { useFinance } from "@/lib/finance-store";
 
 const titles: Record<string, string> = {
   "/": "HeyFin",
@@ -36,6 +37,22 @@ function usePathname() {
 
 export function App() {
   const pathname = usePathname();
+  const { theme } = useFinance();
+
+  useEffect(() => {
+    const isDark = theme === "dark";
+    document.documentElement.classList.toggle("dark", isDark);
+    document.documentElement.style.colorScheme = isDark ? "dark" : "light";
+
+    const themeColor = isDark ? "#181b22" : "#1684d8";
+    let metaTheme = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    if (!metaTheme) {
+      metaTheme = document.createElement("meta");
+      metaTheme.name = "theme-color";
+      document.head.appendChild(metaTheme);
+    }
+    metaTheme.content = themeColor;
+  }, [theme]);
 
   useEffect(() => {
     document.title = titles[pathname] ?? "HeyFin";
