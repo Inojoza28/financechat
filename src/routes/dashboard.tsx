@@ -81,6 +81,15 @@ const COLORS = [
   "var(--chart-5)",
 ];
 
+const CHART_TOOLTIP_STYLE = {
+  borderRadius: 12,
+  border: "1px solid var(--border)",
+  background: "var(--popover)",
+  color: "var(--popover-foreground)",
+  boxShadow: "var(--shadow-float)",
+  fontSize: 12,
+};
+
 const DASHBOARD_CARDS_HIDDEN_KEY = "heyfin.dashboard.cardsHidden";
 const FUTURE_LAUNCHES_COLLAPSED_KEY = "heyfin.dashboard.futureLaunchesCollapsed";
 const RECENT_LAUNCH_PAGE_SIZE = 7;
@@ -964,11 +973,10 @@ function DashboardContent({ state }: { state: FinanceState }) {
                 />
                 <Tooltip
                   formatter={(v: number) => formatBRL(v)}
-                  contentStyle={{
-                    borderRadius: 12,
-                    border: "1px solid var(--border)",
-                    fontSize: 12,
-                  }}
+                  contentStyle={CHART_TOOLTIP_STYLE}
+                  labelStyle={{ color: "var(--muted-foreground)", fontWeight: 500 }}
+                  itemStyle={{ color: "var(--foreground)" }}
+                  cursor={{ stroke: "var(--border)" }}
                 />
                 <Area
                   type="monotone"
@@ -1006,7 +1014,12 @@ function DashboardContent({ state }: { state: FinanceState }) {
                         <Cell key={i} fill={COLORS[i % COLORS.length]} />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(v: number) => formatBRL(v)} />
+                    <Tooltip
+                      formatter={(v: number) => formatBRL(v)}
+                      contentStyle={CHART_TOOLTIP_STYLE}
+                      labelStyle={{ color: "var(--muted-foreground)", fontWeight: 500 }}
+                      itemStyle={{ color: "var(--foreground)" }}
+                    />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
