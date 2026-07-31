@@ -43,6 +43,10 @@ type ParsedExpenseEntry = {
   monthLabel?: string;
 };
 
+type ParsedMixedEntry =
+  | { kind: "revenue"; amount: number; description: string }
+  | ({ kind: "expense" } & ParsedExpenseEntry);
+
 const MONTH_ALIASES = [
   { index: 1, names: ["janeiro", "jan"] },
   { index: 2, names: ["fevereiro", "fev"] },
@@ -470,6 +474,64 @@ function includesAny(text: string, words: string[]) {
   return words.some((word) => text.includes(word));
 }
 
+function financialActionRegex(words: string[]) {
+  return new RegExp(
+    `\\b(?:${words.map((word) => escapeRegExp(normalize(word))).join("|")})\\b`,
+    "g",
+  );
+}
+
+const REVENUE_ACTION_REGEX = financialActionRegex([
+  ...EXTRA_REVENUE_WORDS,
+  ...ADD_TO_BALANCE_WORDS,
+]);
+const EXPENSE_ACTION_REGEX = financialActionRegex(EXPENSE_WORDS);
+
+function lastFinancialAction(text: string): "revenue" | "expense" | null {
+  const normalized = normalize(text);
+  let last: { kind: "revenue" | "expense"; index: number } | null = null;
+
+  for (const match of normalized.matchAll(REVENUE_ACTION_REGEX)) {
+    if (last == null || (match.index ?? 0) >= last.index) {
+      last = { kind: "revenue", index: match.index ?? 0 };
+    }
+  }
+
+  for (const match of normalized.matchAll(EXPENSE_ACTION_REGEX)) {
+    if (last == null || (match.index ?? 0) >= last.index) {
+      last = { kind: "expense", index: match.index ?? 0 };
+    }
+  }
+
+  return last?.kind ?? null;
+}
+
+function prefixFromLastFinancialAction(text: string) {
+  const normalized = normalize(text);
+  let lastIndex = -1;
+
+  for (const match of normalized.matchAll(REVENUE_ACTION_REGEX)) {
+    lastIndex = Math.max(lastIndex, match.index ?? -1);
+  }
+
+  for (const match of normalized.matchAll(EXPENSE_ACTION_REGEX)) {
+    lastIndex = Math.max(lastIndex, match.index ?? -1);
+  }
+
+  return lastIndex >= 0 ? text.slice(lastIndex) : text;
+}
+
+function trimBeforeNextFinancialAction(text: string) {
+  const normalized = normalize(text);
+  const indexes = [
+    ...Array.from(normalized.matchAll(REVENUE_ACTION_REGEX), (match) => match.index ?? -1),
+    ...Array.from(normalized.matchAll(EXPENSE_ACTION_REGEX), (match) => match.index ?? -1),
+  ].filter((index) => index >= 0);
+  const firstIndex = Math.min(...indexes);
+
+  return Number.isFinite(firstIndex) ? text.slice(0, firstIndex) : text;
+}
+
 function monthKeyFromParts(year: number, monthIndex: number) {
   return `${year}-${String(monthIndex).padStart(2, "0")}`;
 }
@@ -808,6 +870,69 @@ function parseMultipleRevenueEntries(text: string): Array<{ amount: number; desc
     .filter((entry): entry is { amount: number; description: string } => entry != null);
 }
 
+function parseMixedFinancialEntries(text: string): ParsedMixedEntry[] {
+  const normalized = normalize(text);
+  if (
+    !(
+      includesAny(normalized, EXTRA_REVENUE_WORDS) || includesAny(normalized, ADD_TO_BALANCE_WORDS)
+    ) ||
+    !includesAny(normalized, EXPENSE_WORDS)
+  ) {
+    return [];
+  }
+
+  const matches = Array.from(text.matchAll(MONEY_PATTERN)).filter(
+    (match) => !isIgnoredMoneyMatch(text, match),
+  );
+
+  if (matches.length < 2) return [];
+
+  return matches
+    .map<ParsedMixedEntry | null>((match, index) => {
+      const amount = parseMoney(match[0]);
+      if (!amount) return null;
+
+      const matchStart = match.index ?? 0;
+      const currentEnd = matchStart + match[0].length;
+      const previousEnd =
+        index === 0 ? 0 : (matches[index - 1].index ?? 0) + matches[index - 1][0].length;
+      const nextStart = matches[index + 1]?.index ?? text.length;
+      const localPrefix = text.slice(previousEnd, matchStart);
+      const prefix = prefixFromLastFinancialAction(
+        index === 0 ? text.slice(0, matchStart) : localPrefix,
+      );
+      const suffix = trimBeforeNextFinancialAction(text.slice(currentEnd, nextStart));
+      const kind = lastFinancialAction(prefix);
+      const segment = `${prefix} ${suffix}`;
+
+      if (kind === "revenue") {
+        return {
+          kind,
+          amount,
+          description: cleanRevenueSegment(segment, amount),
+        };
+      }
+
+      if (kind === "expense") {
+        const target = parseTargetMonth(segment) ?? parseTargetMonth(suffix);
+        const description = cleanExpenseSegment(segment, amount);
+
+        return {
+          kind,
+          amount,
+          description,
+          category: inferCategory(description),
+          month: target?.month,
+          targetStatus: target?.status,
+          monthLabel: target?.label,
+        };
+      }
+
+      return null;
+    })
+    .filter((entry): entry is ParsedMixedEntry => entry != null);
+}
+
 function isAddToBalanceIntent(text: string) {
   return (
     includesAny(text, ADD_TO_BALANCE_WORDS) &&
@@ -987,6 +1112,74 @@ function registerMultipleRevenues(text: string, month: string) {
     `Extras em ${monthLabel(month)}: **${formatBRL(s.extraIncome)}**. Saldo disponível acumulado: **${formatBRL(s.balance)}**.`,
     "",
     "Essas entradas foram somadas ao saldo sem alterar a renda recorrente cadastrada.",
+  ].join("\n");
+}
+
+function registerMixedFinancialEntries(text: string, month: string) {
+  const entries = parseMixedFinancialEntries(text);
+  const hasRevenue = entries.some((entry) => entry.kind === "revenue");
+  const hasExpense = entries.some((entry) => entry.kind === "expense");
+  if (entries.length < 2 || !hasRevenue || !hasExpense) return null;
+
+  const expenseEntries = entries.filter(
+    (entry): entry is Extract<ParsedMixedEntry, { kind: "expense" }> => entry.kind === "expense",
+  );
+  const pastExplicit = expenseEntries.find((entry) => entry.targetStatus === "past-explicit");
+  if (pastExplicit) {
+    return `Encontrei uma despesa para **${pastExplicit.monthLabel}**, mas essa competência já passou.\n\nPara manter o histórico consistente, cadastros pelo chat só podem ser feitos na competência atual ou em períodos futuros.`;
+  }
+
+  const ambiguous = expenseEntries.find((entry) => entry.targetStatus === "ambiguous-past");
+  if (ambiguous) {
+    return `Encontrei uma despesa para **${ambiguous.monthLabel}**, mas preciso que você confirme o ano com mais clareza antes de cadastrar a mensagem inteira.\n\nTente enviar novamente especificando o ano, por exemplo: \`R$ 20 para ${ambiguous.monthLabel}\`.`;
+  }
+
+  const movements = entries.map((entry) => {
+    if (entry.kind === "revenue") {
+      const revenue = financeActions.addRevenue({
+        amount: entry.amount,
+        description: entry.description,
+        date: month === monthKey(localISODate()) ? null : `${month}-01`,
+      });
+
+      return {
+        kind: entry.kind,
+        amount: revenue.amount,
+        date: revenue.date,
+        line: `- Entrada: **+ ${formatBRL(revenue.amount)}** — ${revenue.description}`,
+      };
+    }
+
+    const expense = registerExpenseForEntry(entry, month);
+
+    return {
+      kind: entry.kind,
+      amount: expense.amount,
+      date: expense.date,
+      line: `- Despesa: **- ${formatBRL(expense.amount)}** em ${expense.category} — ${expense.description}`,
+    };
+  });
+
+  const totalRevenue = movements
+    .filter((entry) => entry.kind === "revenue")
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const totalExpense = movements
+    .filter((entry) => entry.kind === "expense")
+    .reduce((sum, entry) => sum + entry.amount, 0);
+  const futureExpense = movements.some(
+    (entry) => entry.kind === "expense" && monthKey(entry.date) > monthKey(localISODate()),
+  );
+  const s = summarize(getFinanceState(), month);
+
+  return [
+    `Pronto, registrei **${movements.length} movimentações** separando entradas e saídas:`,
+    "",
+    ...movements.map((entry) => entry.line),
+    "",
+    `Entradas: **${formatBRL(totalRevenue)}**. Despesas: **${formatBRL(totalExpense)}**.`,
+    futureExpense
+      ? "As despesas futuras ficaram em **Lançamentos futuros** no Dashboard e ainda não foram debitadas do saldo atual."
+      : `Saldo disponível acumulado: **${formatBRL(s.balance)}**.`,
   ].join("\n");
 }
 
@@ -1697,6 +1890,9 @@ export function answerLocally(
   ) {
     return { text: answerNextMonthProjection(month) };
   }
+
+  const mixedMovements = registerMixedFinancialEntries(text, month);
+  if (mixedMovements) return { text: mixedMovements };
 
   if (
     amount &&

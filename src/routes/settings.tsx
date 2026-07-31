@@ -1,11 +1,13 @@
 ﻿import {
   CalendarDays,
   Check,
+  ChevronDown,
   Download,
   FileJson,
   FileSpreadsheet,
   FileText,
   Gauge,
+  Info,
   Moon,
   RotateCcw,
   ShieldAlert,
@@ -106,6 +108,7 @@ function SettingsContent() {
   const [spendingLimit, setSpendingLimit] = useState(String(state.spendingLimit ?? ""));
   const [pendingImport, setPendingImport] = useState<unknown>(null);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [backupHelpOpen, setBackupHelpOpen] = useState(false);
   const suggestedLimit = recommendedSpendingLimit(state.income);
 
   const saveName = () => {
@@ -524,6 +527,42 @@ function SettingsContent() {
               <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
                 Use JSON para salvar ou restaurar renda, despesas, receitas, conversas e ajustes.
               </p>
+            </div>
+            <div className="mb-3 rounded-xl border border-border/55 bg-surface/80">
+              <button
+                type="button"
+                onClick={() => setBackupHelpOpen((open) => !open)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+                aria-expanded={backupHelpOpen}
+                aria-controls="backup-json-help"
+              >
+                <Info className="size-3.5 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1">Entenda como salvar e restaurar seus dados.</span>
+                <ChevronDown
+                  className={`size-3.5 shrink-0 transition-transform duration-200 ${
+                    backupHelpOpen ? "rotate-180" : "rotate-0"
+                  }`}
+                />
+              </button>
+              <div
+                id="backup-json-help"
+                className={`grid transition-[grid-template-rows] duration-300 ease-out ${
+                  backupHelpOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+                }`}
+              >
+                <div className="overflow-hidden">
+                  <div className="border-t border-border/45 px-3 pb-3 pt-2 text-[12px] leading-relaxed text-muted-foreground">
+                    <p>
+                      Ao exportar, o HeyFin cria um arquivo com uma cópia das suas informações, como
+                      renda, despesas, receitas, conversas e ajustes.
+                    </p>
+                    <p className="mt-1.5">
+                      Guarde esse arquivo em um local seguro. Se precisar recuperar seus dados
+                      depois, use <strong>Importar JSON</strong> e selecione o backup salvo.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
             <div className="grid gap-2 sm:grid-cols-2">
               <Button
