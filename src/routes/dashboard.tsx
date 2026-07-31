@@ -82,6 +82,7 @@ const COLORS = [
 ];
 
 const DASHBOARD_CARDS_HIDDEN_KEY = "heyfin.dashboard.cardsHidden";
+const FUTURE_LAUNCHES_COLLAPSED_KEY = "heyfin.dashboard.futureLaunchesCollapsed";
 const RECENT_LAUNCH_PAGE_SIZE = 7;
 
 type EditableStatKey = "income" | "extraIncome" | "spent" | "limit";
@@ -221,6 +222,10 @@ function DashboardContent({ state }: { state: FinanceState }) {
     return window.localStorage.getItem(DASHBOARD_CARDS_HIDDEN_KEY) === "true";
   });
   const [cardsEditing, setCardsEditing] = useState(false);
+  const [futureLaunchesCollapsed, setFutureLaunchesCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(FUTURE_LAUNCHES_COLLAPSED_KEY) === "true";
+  });
   const [cardEditValues, setCardEditValues] = useState<Record<EditableStatKey, string>>({
     income: "",
     extraIncome: "",
@@ -239,6 +244,8 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const [selectedFixedOccurrence, setSelectedFixedOccurrence] = useState<
     Extract<RecentLaunch, { kind: "fixedExpense" }> | null
   >(null);
+  const [visibleFutureLaunchCount, setVisibleFutureLaunchCount] =
+    useState(RECENT_LAUNCH_PAGE_SIZE);
   const [editDescription, setEditDescription] = useState("");
   const [editAmount, setEditAmount] = useState("");
   const [editCategory, setEditCategory] = useState<string>("Geral");
@@ -259,6 +266,12 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const recentCutoff = isoDateDaysAgo(38);
   const today = localISODate();
   const activeFixedExpenses = state.fixedExpenses.filter((expense) => !expense.canceledAt);
+  const futureLaunches = state.expenses
+    .filter((expense) => expense.date > today)
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
+  const visibleFutureLaunches = futureLaunches.slice(0, visibleFutureLaunchCount);
+  const hasMoreFutureLaunches = visibleFutureLaunchCount < futureLaunches.length;
   const recentExpenses: RecentLaunch[] = state.expenses
     .filter((expense) => expense.date >= recentCutoff && expense.date <= today)
     .map((expense) => ({ ...expense, kind: "expense" }));
@@ -309,6 +322,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
     .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
   const visibleRecentLaunches = recentLaunches.slice(0, visibleLaunchCount);
   const hasMoreRecentLaunches = visibleLaunchCount < recentLaunches.length;
+  const selectedExpenseIsFuture = Boolean(selectedExpense && selectedExpense.date > today);
 
   useEffect(() => {
     setCardsEditing(false);
@@ -318,6 +332,10 @@ function DashboardContent({ state }: { state: FinanceState }) {
     setVisibleLaunchCount(RECENT_LAUNCH_PAGE_SIZE);
   }, [recentLaunches.length]);
 
+  useEffect(() => {
+    setVisibleFutureLaunchCount(RECENT_LAUNCH_PAGE_SIZE);
+  }, [futureLaunches.length]);
+
   const setCardValue = (key: EditableStatKey, value: string) => {
     setCardEditValues((current) => ({ ...current, [key]: value }));
   };
@@ -326,6 +344,14 @@ function DashboardContent({ state }: { state: FinanceState }) {
     setCardsHidden((current) => {
       const next = !current;
       window.localStorage.setItem(DASHBOARD_CARDS_HIDDEN_KEY, String(next));
+      return next;
+    });
+  };
+
+  const toggleFutureLaunches = () => {
+    setFutureLaunchesCollapsed((current) => {
+      const next = !current;
+      window.localStorage.setItem(FUTURE_LAUNCHES_COLLAPSED_KEY, String(next));
       return next;
     });
   };
@@ -514,6 +540,11 @@ function DashboardContent({ state }: { state: FinanceState }) {
       ((!selectedExpense || !selectedExpense.adjustment) && amount < 0)
     ) {
       toast.error("Informe um valor válido para a despesa.");
+      return;
+    }
+
+    if (selectedExpense?.date > today && (editDate || selectedExpense.date) <= today) {
+      toast.error("Lançamentos futuros precisam permanecer em uma data futura.");
       return;
     }
 
@@ -1000,6 +1031,123 @@ function DashboardContent({ state }: { state: FinanceState }) {
 
       <div className="animate-rise rounded-[18px] border border-border/55 bg-surface p-5 shadow-soft">
         <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={toggleFutureLaunches}
+            className="flex min-w-0 items-center gap-2 rounded-xl text-left transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/20"
+            aria-expanded={!futureLaunchesCollapsed}
+            aria-controls="future-launches-list"
+          >
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-sky-50 text-sky-700 ring-1 ring-sky-100">
+              <CalendarClock className="size-4" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-[13px] font-medium text-muted-foreground">
+                Lançamentos futuros
+              </span>
+              <span className="block text-[12px] leading-snug text-muted-foreground/75">
+                Despesas programadas que ainda não foram debitadas.
+              </span>
+            </span>
+          </button>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="size-8 rounded-full text-muted-foreground hover:bg-secondary/70 hover:text-foreground"
+            onClick={toggleFutureLaunches}
+            aria-label={futureLaunchesCollapsed ? "Mostrar lançamentos futuros" : "Ocultar lançamentos futuros"}
+            title={futureLaunchesCollapsed ? "Mostrar" : "Ocultar"}
+          >
+            <ChevronDown
+              className={`size-4 transition-transform duration-300 ${
+                futureLaunchesCollapsed ? "-rotate-90" : "rotate-0"
+              }`}
+            />
+          </Button>
+        </div>
+
+        {!futureLaunchesCollapsed && (
+          <div id="future-launches-list" className="mt-3 space-y-3">
+            {futureLaunches.length === 0 ? (
+              <p className="rounded-2xl bg-secondary/45 px-3 py-3 text-[13px] leading-relaxed text-muted-foreground">
+                Nenhuma despesa futura ainda. Ao registrar algo como{" "}
+                <span className="font-medium text-foreground">R$ 50 para agosto</span>, ela fica
+                aqui até chegar a competência.
+              </p>
+            ) : (
+              <>
+                <ul className="space-y-1">
+                  {visibleFutureLaunches.map((expense, index) => {
+                    const previous = visibleFutureLaunches[index - 1];
+                    const showMonth = !previous || monthKey(previous.date) !== monthKey(expense.date);
+
+                    return (
+                      <li key={`future-${expense.id}`}>
+                        {showMonth && (
+                          <div className="flex items-center gap-2 px-2 pb-1 pt-2 first:pt-0">
+                            <span className="shrink-0 text-[10.5px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
+                              {monthLabel(monthKey(expense.date))}
+                            </span>
+                            <span className="h-px flex-1 bg-border/55" />
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => openExpense(expense)}
+                          className="flex w-full items-center justify-between gap-3 rounded-xl bg-sky-50/35 py-2.5 text-left ring-1 ring-sky-100/60 transition-colors hover:bg-sky-50/60 focus-visible:bg-sky-50/60"
+                        >
+                          <div className="min-w-0 px-2">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <p className="truncate text-[14px] font-medium">
+                                {expense.description}
+                              </p>
+                              <Badge
+                                variant="outline"
+                                className="shrink-0 rounded-full border border-sky-200/75 bg-sky-100/65 px-2 py-0 text-[10px] font-medium text-sky-700 shadow-none"
+                              >
+                                Futuro
+                              </Badge>
+                            </div>
+                            <p className="text-[12px] text-muted-foreground">
+                              {expense.category} ·{" "}
+                              {new Date(`${expense.date}T12:00:00`).toLocaleDateString("pt-BR")}
+                            </p>
+                          </div>
+                          <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold text-sky-700 tabular-nums">
+                            {formatBRL(expense.amount)}
+                            <Pencil className="size-3.5 text-sky-600/70" />
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+
+                {hasMoreFutureLaunches && (
+                  <div className="flex justify-center pt-1">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-9 rounded-full border-border/70 bg-transparent px-4 text-[12.5px] font-medium text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-transparent hover:text-primary"
+                      onClick={() =>
+                        setVisibleFutureLaunchCount((current) => current + RECENT_LAUNCH_PAGE_SIZE)
+                      }
+                    >
+                      Ver mais lançamentos
+                      <ChevronDown className="size-3.5" />
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="animate-rise rounded-[18px] border border-border/55 bg-surface p-5 shadow-soft">
+        <div className="flex items-center justify-between gap-3">
           <p className="text-[13px] font-medium text-muted-foreground">Últimos lançamentos</p>
           <Button
             type="button"
@@ -1170,7 +1318,9 @@ function DashboardContent({ state }: { state: FinanceState }) {
           <DialogHeader>
             <DialogTitle>{selectedExpense ? "Editar despesa" : "Novo lançamento"}</DialogTitle>
             <DialogDescription>
-              {selectedExpense
+              {selectedExpenseIsFuture
+                ? "Ajuste esta despesa programada. Ela continua sem afetar o saldo atual enquanto permanecer em uma data futura."
+                : selectedExpense
                 ? "Ajuste os dados do lançamento. Os resumos e gráficos são atualizados na hora."
                 : "Adicione uma despesa manualmente. Ela aparecerá nos últimos lançamentos com identificação própria."}
             </DialogDescription>
@@ -1249,8 +1399,9 @@ function DashboardContent({ state }: { state: FinanceState }) {
                     <AlertDialogHeader>
                       <AlertDialogTitle>Excluir esta despesa?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Essa ação remove o lançamento e atualiza saldo, limite, gráficos e projeções.
-                        Não dá para desfazer.
+                        {selectedExpenseIsFuture
+                          ? "Essa ação remove apenas esta despesa programada. Como ela ainda não foi debitada, o saldo atual não será alterado."
+                          : "Essa ação remove o lançamento e atualiza saldo, limite, gráficos e projeções. Não dá para desfazer."}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="gap-2 sm:space-x-0">
