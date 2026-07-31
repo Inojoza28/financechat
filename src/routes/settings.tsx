@@ -60,7 +60,20 @@ const PERIODS: { value: IncomePeriod; label: string }[] = [
 ];
 
 function moneyFromInput(value: string) {
-  return Number(value.replace(/\./g, "").replace(",", "."));
+  const cleanValue = value.trim().replace(/\s/g, "");
+  if (!cleanValue) return Number.NaN;
+
+  const hasComma = cleanValue.includes(",");
+  if (hasComma) {
+    return Number(cleanValue.replace(/\./g, "").replace(",", "."));
+  }
+
+  const dotDecimalMatch = cleanValue.match(/^\d+\.\d{1,2}$/);
+  if (dotDecimalMatch) {
+    return Number(cleanValue);
+  }
+
+  return Number(cleanValue.replace(/\./g, ""));
 }
 
 function Section({
@@ -110,6 +123,7 @@ function SettingsContent() {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [backupHelpOpen, setBackupHelpOpen] = useState(false);
   const suggestedLimit = recommendedSpendingLimit(state.income);
+  const configuredLimit = state.spendingLimit;
 
   const saveName = () => {
     financeActions.setAssistantName(name);
@@ -325,50 +339,81 @@ function SettingsContent() {
       <Section
         icon={Gauge}
         title="Limite de gastos"
-        description="Defina um teto para o período. O app acompanha o consumo e avisa quando você se aproxima do limite."
+        description="Defina o valor máximo que você quer usar como referência no período."
       >
-        <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
-          <div>
-            <Label htmlFor="spending-limit" className="text-[13px]">
-              Valor máximo por período
-            </Label>
-            <Input
-              id="spending-limit"
-              inputMode="decimal"
-              placeholder={suggestedLimit > 0 ? String(suggestedLimit) : "1800"}
-              value={spendingLimit}
-              onChange={(e) => setSpendingLimit(e.target.value)}
-              className="mt-1.5 rounded-xl"
-            />
+        <div className="rounded-2xl border border-border/55 bg-background/65 p-3.5 dark:bg-surface-muted/35 sm:p-4">
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-start">
+            <div className="min-w-0 rounded-xl border border-border/45 bg-surface/70 px-3 py-3 sm:border-0 sm:bg-transparent sm:p-0">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.11em] text-muted-foreground sm:text-[12px] sm:normal-case sm:tracking-normal">
+                Limite atual
+              </p>
+              <p className="mt-1.5 text-[21px] font-semibold leading-none tracking-tight sm:mt-1 sm:text-[22px]">
+                {configuredLimit != null ? formatBRL(configuredLimit) : "Não definido"}
+              </p>
+            </div>
+            {suggestedLimit > 0 && (
+              <button
+                type="button"
+                onClick={useSuggestedLimit}
+                className="inline-flex w-full items-center justify-center rounded-xl border border-primary/18 bg-primary/[0.04] px-3 py-2 text-center text-[12px] font-medium text-primary transition-colors hover:border-primary/30 hover:bg-primary/[0.07] sm:w-auto sm:rounded-full sm:py-1.5"
+              >
+                Usar sugestão {formatBRL(suggestedLimit)}
+              </button>
+            )}
           </div>
-          <Button onClick={saveSpendingLimit} className="w-full rounded-xl sm:w-auto">
-            Salvar limite
-          </Button>
-        </div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-[auto_auto_1fr] sm:items-center">
-          <Button
-            variant="outline"
-            className="w-full rounded-xl sm:w-auto"
-            onClick={useSuggestedLimit}
-          >
-            Usar 80% da renda
-          </Button>
-          {state.spendingLimit && (
-            <Button
-              variant="ghost"
-              className="w-full rounded-xl sm:w-auto"
-              onClick={() => {
-                setSpendingLimit("");
-                financeActions.setSpendingLimit(null);
-                toast.success("Limite removido.");
-              }}
-            >
-              Remover limite
-            </Button>
-          )}
-          <span className="text-center text-[13px] text-muted-foreground sm:text-left">
-            Atual: {state.spendingLimit ? formatBRL(state.spendingLimit) : "não definido"}
-          </span>
+
+          <div className="mt-4 grid gap-2.5 sm:grid-cols-[1fr_auto] sm:items-end">
+            <div className="min-w-0">
+              <Label htmlFor="spending-limit" className="text-[13px]">
+                Novo limite
+              </Label>
+              <Input
+                id="spending-limit"
+                inputMode="decimal"
+                placeholder={suggestedLimit > 0 ? String(suggestedLimit) : "1800"}
+                value={spendingLimit}
+                onChange={(e) => setSpendingLimit(e.target.value)}
+                className="mt-1.5 rounded-xl bg-surface"
+              />
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <Button onClick={saveSpendingLimit} className="h-11 w-full rounded-xl px-5 sm:w-auto">
+                {configuredLimit != null ? "Atualizar" : "Definir"}
+              </Button>
+              {configuredLimit != null && (
+                <Button
+                  variant="ghost"
+                  className="hidden h-11 justify-center rounded-xl border border-destructive/18 bg-destructive/[0.045] px-4 text-[13px] font-medium text-destructive transition-colors hover:border-destructive/28 hover:bg-destructive/[0.09] hover:text-destructive sm:inline-flex"
+                  onClick={() => {
+                    setSpendingLimit("");
+                    financeActions.setSpendingLimit(null);
+                    toast.success("Limite removido.");
+                  }}
+                >
+                  Remover
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="mt-3 grid gap-2">
+            <p className="text-[12px] leading-relaxed text-muted-foreground">
+              Esse valor será usado nos alertas e projeções do HeyFin.
+            </p>
+            {configuredLimit != null && (
+              <Button
+                variant="ghost"
+                className="h-9 w-full justify-center rounded-xl border border-destructive/18 bg-destructive/[0.045] px-3 text-[13px] font-medium text-destructive transition-colors hover:border-destructive/28 hover:bg-destructive/[0.09] hover:text-destructive sm:hidden"
+                onClick={() => {
+                  setSpendingLimit("");
+                  financeActions.setSpendingLimit(null);
+                  toast.success("Limite removido.");
+                }}
+              >
+                Remover limite
+              </Button>
+            )}
+          </div>
         </div>
       </Section>
 
