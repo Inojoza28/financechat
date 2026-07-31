@@ -1352,7 +1352,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                   className="mt-1.5 rounded-xl"
                 />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 pr-1 sm:pr-0">
                 <Label htmlFor="expense-date" className="text-[13px]">
                   Data
                 </Label>
@@ -1361,7 +1361,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                   type="date"
                   value={editDate}
                   onChange={(event) => setEditDate(event.target.value)}
-                  className="mt-1.5 min-w-0 max-w-full rounded-xl"
+                  className="date-input-contained mt-1.5 min-w-0 max-w-full rounded-xl"
                 />
               </div>
             </div>

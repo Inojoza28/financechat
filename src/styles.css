@@ -288,6 +288,24 @@
   h3 {
     letter-spacing: 0;
   }
+
+  .date-input-contained {
+    appearance: none;
+    -webkit-appearance: none;
+    box-sizing: border-box;
+    display: block;
+    max-width: 100%;
+    min-inline-size: 0;
+    overflow: hidden;
+    width: 100%;
+  }
+
+  .date-input-contained::-webkit-date-and-time-value,
+  .date-input-contained::-webkit-datetime-edit {
+    max-width: 100%;
+    min-inline-size: 0;
+    text-align: left;
+  }
 }
 
 @media (max-width: 768px) {
