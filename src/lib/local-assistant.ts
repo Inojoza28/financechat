@@ -366,11 +366,62 @@ function normalize(text: string) {
     .replace(/\p{Diacritic}/gu, "");
 }
 
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function compactMessage(text: string) {
   return normalize(text)
     .replace(/[!?.,;:()[\]{}'"`´~^]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function assistantCallNames(state: FinanceState) {
+  return Array.from(
+    new Set(
+      ["chat", "fin", "heyfin", state.assistantName, normalize(state.assistantName)]
+        .map((name) => name.trim())
+        .filter(Boolean),
+    ),
+  ).sort((a, b) => b.length - a.length);
+}
+
+function stripAssistantAddress(text: string, state: FinanceState) {
+  const names = assistantCallNames(state)
+    .map((name) => escapeRegExp(name).replace(/\s+/g, "\\s+"))
+    .join("|");
+
+  if (!names) return text;
+
+  const greetings = [
+    "oi",
+    "ola",
+    "olá",
+    "bom\\s+dia",
+    "boa\\s+tarde",
+    "boa\\s+noite",
+    "opa",
+    "fala",
+    "salve",
+  ].join("|");
+  let clean = text.trim();
+
+  clean = clean
+    .replace(new RegExp(`^\\s*((?:(?:${greetings})\\b[\\s,!?.:;-]*)+)(?:${names})\\b[\\s,!?.:;-]*`, "iu"), "$1")
+    .replace(new RegExp(`^\\s*(?:${names})\\b[\\s,!?.:;-]*`, "iu"), "")
+    .trim();
+
+  const withoutLeadingGreeting = clean.replace(
+    new RegExp(`^\\s*(?:${greetings})\\b[\\s,!?.:;-]+`, "iu"),
+    "",
+  );
+
+  if (withoutLeadingGreeting.trim()) {
+    clean = withoutLeadingGreeting.trim();
+  }
+
+  return clean || text;
 }
 
 function includesAny(text: string, words: string[]) {
@@ -445,27 +496,42 @@ function stripTargetMonthText(text: string) {
     .trim();
 }
 
-function isShortConversationalPhrase(text: string, phrases: string[]) {
+function isShortConversationalPhrase(text: string, phrases: string[], callNames: string[] = []) {
   const words = text.split(" ").filter(Boolean);
+  const names = ["chat", "fin", "heyfin", ...callNames].map(normalize).filter(Boolean);
   return (
     words.length <= 4 &&
-    phrases.some((phrase) => text === phrase || text === `${phrase} fin` || text === `${phrase} heyfin`)
+    phrases.some(
+      (phrase) =>
+        text === phrase ||
+        names.some((name) => text === `${phrase} ${name}` || text === `${name} ${phrase}`),
+    )
   );
 }
 
-function isClosingPhrase(text: string) {
-  if (isShortConversationalPhrase(text, CLOSING_PHRASES)) return true;
+function isClosingPhrase(text: string, state: FinanceState) {
+  const names = assistantCallNames(state).map(normalize).filter(Boolean);
+  if (isShortConversationalPhrase(text, CLOSING_PHRASES, names)) return true;
 
-  const withoutAssistantName = text.replace(/\b(fin|heyfin)\b/g, "").replace(/\s+/g, " ").trim();
+  const assistantPattern = names.map(escapeRegExp).join("|");
+  const withoutAssistantName = text
+    .replace(new RegExp(`\\b(${assistantPattern})\\b`, "g"), "")
+    .replace(/\s+/g, " ")
+    .trim();
   const words = withoutAssistantName.split(" ").filter(Boolean);
 
   return words.length <= 6 && includesAny(withoutAssistantName, CLOSING_PHRASES);
 }
 
-function isGreetingPhrase(text: string) {
-  if (isShortConversationalPhrase(text, GREETING_PHRASES)) return true;
+function isGreetingPhrase(text: string, state: FinanceState) {
+  const names = assistantCallNames(state).map(normalize).filter(Boolean);
+  if (isShortConversationalPhrase(text, GREETING_PHRASES, names)) return true;
 
-  const withoutAssistantName = text.replace(/\b(fin|heyfin)\b/g, "").replace(/\s+/g, " ").trim();
+  const assistantPattern = names.map(escapeRegExp).join("|");
+  const withoutAssistantName = text
+    .replace(new RegExp(`\\b(${assistantPattern})\\b`, "g"), "")
+    .replace(/\s+/g, " ")
+    .trim();
   const parts = withoutAssistantName.split(" ").filter(Boolean);
   if (parts.length > 4) return false;
 
@@ -507,11 +573,11 @@ function hasFinancialSignal(text: string, amount: number | null) {
   );
 }
 
-function answerSmallTalk(text: string, amount: number | null) {
+function answerSmallTalk(text: string, amount: number | null, state: FinanceState) {
   const compact = compactMessage(text);
   if (!compact || hasFinancialSignal(compact, amount)) return null;
 
-  if (isGreetingPhrase(compact)) {
+  if (isGreetingPhrase(compact, state)) {
     if (compact.startsWith("bom dia")) {
       return "Bom dia! Estou por aqui para te ajudar a registrar gastos, receitas e acompanhar seu saldo com clareza.";
     }
@@ -527,7 +593,7 @@ function answerSmallTalk(text: string, amount: number | null) {
     return "Oi! Estou por aqui para te ajudar com seu controle financeiro. Pode me contar um gasto, uma receita ou perguntar sobre saldo e projeções.";
   }
 
-  if (isClosingPhrase(compact)) {
+  if (isClosingPhrase(compact, state)) {
     if (includesAny(compact, ["obrigado", "obrigada", "obg", "valeu"])) {
       return "De nada! Sempre que precisar, posso te ajudar a acompanhar receitas, despesas, saldo e projeções.";
     }
@@ -1235,7 +1301,8 @@ export function answerLocally(
   month: string,
   context?: ConversationContext,
 ): AssistantResult {
-  text = normalizeSpokenMoneyText(text);
+  const state = getFinanceState();
+  text = stripAssistantAddress(normalizeSpokenMoneyText(text), state);
   const normalized = normalize(text);
   const recentText = normalize(recentConversationText(context));
   const standaloneAmount = parseStandaloneExpenseAmount(text);
@@ -1251,7 +1318,7 @@ export function answerLocally(
     return { text: pendingResponse };
   }
 
-  const smallTalkResponse = answerSmallTalk(text, amount);
+  const smallTalkResponse = answerSmallTalk(text, amount, state);
   if (smallTalkResponse) {
     return { text: smallTalkResponse };
   }
