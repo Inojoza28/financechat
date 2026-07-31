@@ -60,7 +60,7 @@ const PERIODS: { value: IncomePeriod; label: string }[] = [
 ];
 
 function moneyFromInput(value: string) {
-  const cleanValue = value.trim().replace(/\s/g, "");
+  const cleanValue = value.replace(/[^\d,.-]/g, "");
   if (!cleanValue) return Number.NaN;
 
   const hasComma = cleanValue.includes(",");
@@ -74,6 +74,13 @@ function moneyFromInput(value: string) {
   }
 
   return Number(cleanValue.replace(/\./g, ""));
+}
+
+function formatMoneyInput(value: string) {
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return "";
+
+  return formatBRL(Number(digits) / 100);
 }
 
 function Section({
@@ -118,7 +125,9 @@ function SettingsContent() {
   );
   const [firstPayday, setFirstPayday] = useState(String(state.income?.firstPayday ?? 5));
   const [secondPayday, setSecondPayday] = useState(String(state.income?.secondPayday ?? 20));
-  const [spendingLimit, setSpendingLimit] = useState(String(state.spendingLimit ?? ""));
+  const [spendingLimit, setSpendingLimit] = useState(
+    state.spendingLimit != null ? formatBRL(state.spendingLimit) : "",
+  );
   const [pendingImport, setPendingImport] = useState<unknown>(null);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [backupHelpOpen, setBackupHelpOpen] = useState(false);
@@ -183,7 +192,7 @@ function SettingsContent() {
       return;
     }
 
-    setSpendingLimit(String(suggestedLimit));
+    setSpendingLimit(formatBRL(suggestedLimit));
     financeActions.setSpendingLimit(suggestedLimit);
     toast.success("Limite sugerido aplicado.");
   };
@@ -370,9 +379,9 @@ function SettingsContent() {
               <Input
                 id="spending-limit"
                 inputMode="decimal"
-                placeholder={suggestedLimit > 0 ? String(suggestedLimit) : "1800"}
+                placeholder={suggestedLimit > 0 ? formatBRL(suggestedLimit) : "R$ 1.800,00"}
                 value={spendingLimit}
-                onChange={(e) => setSpendingLimit(e.target.value)}
+                onChange={(e) => setSpendingLimit(formatMoneyInput(e.target.value))}
                 className="mt-1.5 rounded-xl bg-surface"
               />
             </div>
