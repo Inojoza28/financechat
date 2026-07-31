@@ -3,6 +3,7 @@
   financeActions,
   forecastFutureMonth,
   forecastNextMonth,
+  forecastUntilDate,
   formatBRL,
   getFinanceState,
   incomeLabel,
@@ -11,6 +12,8 @@
   monthKey,
   monthLabel,
   nextIncomePayment,
+  offsetMonthKey,
+  recurringIncomeOccurrencesForMonth,
   summarize,
   type Expense,
   type FinanceState,
@@ -146,6 +149,20 @@ const FUTURE_MONTH_PROJECTION_WORDS = [
   "projecao",
   "estimativa",
   "disponivel",
+];
+
+const PAYMENT_PROJECTION_WORDS = [
+  "pagamento",
+  "recebimento",
+  "salario",
+  "semana",
+  "inicio",
+  "comeco",
+  "primeiro pagamento",
+  "segundo pagamento",
+  "ultimo pagamento",
+  "próximo salário",
+  "proximo salario",
 ];
 
 const SPENDING_UNTIL_NEXT_MONTH_WORDS = [
@@ -332,7 +349,10 @@ function isIgnoredMoneyMatch(text: string, match: RegExpMatchArray) {
   const before = normalize(text.slice(Math.max(0, index - 24), index));
   const value = match[1];
 
-  return /\bdia\s*$/.test(before) || (/^20\d{2}$/.test(value) && new RegExp(`\\b(${monthAliasPattern()})\\s+de\\s*$`).test(before));
+  return (
+    /\bdia\s*$/.test(before) ||
+    (/^20\d{2}$/.test(value) && new RegExp(`\\b(${monthAliasPattern()})\\s+de\\s*$`).test(before))
+  );
 }
 
 function parseMoneyValues(text: string) {
@@ -373,7 +393,9 @@ function hasExpenseDescriptionWithAmount(text: string) {
     "simule",
   ];
 
-  return /[a-zA-ZÀ-ÿ]/.test(withoutAmount) && !questionWords.some((word) => normalized.startsWith(word));
+  return (
+    /[a-zA-ZÀ-ÿ]/.test(withoutAmount) && !questionWords.some((word) => normalized.startsWith(word))
+  );
 }
 
 function normalize(text: string) {
@@ -425,7 +447,10 @@ function stripAssistantAddress(text: string, state: FinanceState) {
   let clean = text.trim();
 
   clean = clean
-    .replace(new RegExp(`^\\s*((?:(?:${greetings})\\b[\\s,!?.:;-]*)+)(?:${names})\\b[\\s,!?.:;-]*`, "iu"), "$1")
+    .replace(
+      new RegExp(`^\\s*((?:(?:${greetings})\\b[\\s,!?.:;-]*)+)(?:${names})\\b[\\s,!?.:;-]*`, "iu"),
+      "$1",
+    )
     .replace(new RegExp(`^\\s*(?:${names})\\b[\\s,!?.:;-]*`, "iu"), "")
     .trim();
 
@@ -455,21 +480,21 @@ function monthAliasPattern() {
     .join("|");
 }
 
-function parseTargetMonth(text: string):
-  | {
-      month: string;
-      status: "current-or-future" | "past-explicit" | "ambiguous-past";
-      label: string;
-      explicitYear: boolean;
-    }
-  | null {
+function parseTargetMonth(text: string): {
+  month: string;
+  status: "current-or-future" | "past-explicit" | "ambiguous-past";
+  label: string;
+  explicitYear: boolean;
+} | null {
   const normalized = normalize(text);
   const pattern = monthAliasPattern();
   const match = normalized.match(new RegExp(`\\b(${pattern})\\b(?:\\s+(?:de\\s+)?(20\\d{2}))?`));
   if (!match) return null;
 
   const alias = match[1];
-  const monthIndex = MONTH_ALIASES.find((month) => month.names.some((name) => normalize(name) === alias))?.index;
+  const monthIndex = MONTH_ALIASES.find((month) =>
+    month.names.some((name) => normalize(name) === alias),
+  )?.index;
   if (!monthIndex) return null;
 
   const todayMonth = monthKey(localISODate());
@@ -508,7 +533,13 @@ function parseTargetMonth(text: string):
 function stripTargetMonthText(text: string) {
   const pattern = monthAliasPattern();
   return text
-    .replace(new RegExp(`\\b(?:para|em|no|na|pro|pra|coloca(?:r)?\\s+para)?\\s*(?:${pattern})\\b(?:\\s+(?:de\\s+)?20\\d{2})?`, "gi"), " ")
+    .replace(
+      new RegExp(
+        `\\b(?:para|em|no|na|pro|pra|coloca(?:r)?\\s+para)?\\s*(?:${pattern})\\b(?:\\s+(?:de\\s+)?20\\d{2})?`,
+        "gi",
+      ),
+      " ",
+    )
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -696,7 +727,7 @@ function parseMultipleExpenseEntries(text: string): ParsedExpenseEntry[] {
   if (matches.length < 2) return [];
 
   return matches
-    .map((match, index) => {
+    .map<ParsedExpenseEntry | null>((match, index) => {
       const amount = parseMoney(match[0]);
       if (!amount) return null;
 
@@ -1035,7 +1066,9 @@ function registerMultipleExpenses(text: string, month: string) {
   return [
     `Pronto, registrei **${expenses.length} despesas** no total de **${formatBRL(total)}**:`,
     "",
-    ...expenses.map((expense) => `- ${expenseLine(expense)} (${monthLabel(monthKey(expense.date))})`),
+    ...expenses.map(
+      (expense) => `- ${expenseLine(expense)} (${monthLabel(monthKey(expense.date))})`,
+    ),
     "",
     months.some((entryMonth) => entryMonth > monthKey(localISODate()))
       ? `Lançamentos futuros não foram descontados do saldo atual. Eles entram nas projeções e passam a impactar o saldo quando a competência correspondente chegar.`
@@ -1128,7 +1161,11 @@ function answerPendingAction(text: string, month: string) {
     );
     financeActions.setPendingAction(null);
 
-    return formatExpenseConfirmation(expense, pending.month, pending.month > monthKey(localISODate()));
+    return formatExpenseConfirmation(
+      expense,
+      pending.month,
+      pending.month > monthKey(localISODate()),
+    );
   }
 
   const expense = state.expenses.find((item) => item.id === pending.expenseId);
@@ -1159,7 +1196,8 @@ function isEditHelpRequest(text: string) {
   if (includesAny(text, EDIT_HELP_WORDS)) return true;
 
   const asksHow = includesAny(text, ["como", "onde", "por onde", "de que forma"]);
-  const editVerb = /\b(edito|editar|altero|alterar|mudo|mudar|corrijo|corrigir|ajusto|ajustar)\b/.test(text);
+  const editVerb =
+    /\b(edito|editar|altero|alterar|mudo|mudar|corrijo|corrigir|ajusto|ajustar)\b/.test(text);
   const expenseTarget = /\b(despesa|despesas|gasto|gastos|lancamento|lancamentos)\b/.test(text);
 
   return asksHow && editVerb && expenseTarget;
@@ -1213,11 +1251,212 @@ function listFixedExpenses(month: string) {
   return [
     `${intro}\n\nTotal ativo em ${monthLabel(month)}: **${formatBRL(totalActive)}**.`,
     ...fixedExpenses.map((expense) => {
-      const status = month >= expense.startsAtMonth ? "" : `, começa em ${monthLabel(expense.startsAtMonth)}`;
+      const status =
+        month >= expense.startsAtMonth ? "" : `, começa em ${monthLabel(expense.startsAtMonth)}`;
       return `- **${expense.description}**: ${formatBRL(expense.amount)}, vencimento dia ${String(expense.payday).padStart(2, "0")}${status}`;
     }),
     "\nPara editar ou excluir alguma delas, acesse o **Dashboard**, na seção **Despesas fixas**.",
   ].join("\n");
+}
+
+function parsePaymentOrdinal(text: string): number | "last" | null {
+  if (/\b(ultimo|ultima|último|última)\b/.test(text)) return "last";
+  if (/\b(primeiro|primeira|1o|1º|1)\b/.test(text)) return 1;
+  if (/\b(segundo|segunda|2o|2º|2)\b/.test(text)) return 2;
+  if (/\b(terceiro|terceira|3o|3º|3)\b/.test(text)) return 3;
+  if (/\b(quarto|quarta|4o|4º|4)\b/.test(text)) return 4;
+  if (/\b(quinto|quinta|5o|5º|5)\b/.test(text)) return 5;
+  return null;
+}
+
+function isStartOfMonthPaymentReference(text: string) {
+  return /\b(inicio|comeco|começo|inicial)\b/.test(text);
+}
+
+function isWeeklyPaymentReference(text: string) {
+  return /\bsemana\b/.test(text);
+}
+
+function paymentProjectionIntent(text: string, recentText: string) {
+  return (
+    includesAny(text, PAYMENT_PROJECTION_WORDS) ||
+    (includesAny(recentText, PAYMENT_PROJECTION_WORDS) &&
+      includesAny(text, [
+        "primeiro",
+        "segundo",
+        "terceiro",
+        "quarto",
+        "quinto",
+        "ultimo",
+        "último",
+        "semana",
+        "inicio",
+        "comeco",
+      ]))
+  );
+}
+
+function paymentDateLabel(date: string) {
+  return new Date(`${date}T12:00:00`).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function paymentOptionsText(payments: ReturnType<typeof recurringIncomeOccurrencesForMonth>) {
+  return payments
+    .map((payment, index) => {
+      const isWeekly = payment.label.toLowerCase().includes("semanal");
+      const label = isWeekly
+        ? index === payments.length - 1
+          ? "última semana"
+          : `${index + 1}ª semana`
+        : index === payments.length - 1
+          ? "último"
+          : `${index + 1}º`;
+      return `${label}: ${paymentDateLabel(payment.date)} (${formatBRL(payment.amount)})`;
+    })
+    .join("; ");
+}
+
+function weeklyPaymentClarification(
+  month: string,
+  payments: ReturnType<typeof recurringIncomeOccurrencesForMonth>,
+) {
+  return `Você quer considerar o pagamento de qual semana de **${monthLabel(month)}**?\n\nOpções: ${paymentOptionsText(payments)}.`;
+}
+
+function answerProjectionUntilPaymentDate(
+  payment: ReturnType<typeof recurringIncomeOccurrencesForMonth>[number],
+) {
+  const forecast = forecastUntilDate(getFinanceState(), payment.date);
+  const incomeText =
+    forecast.projectedIncome > 0
+      ? `${formatBRL(forecast.projectedIncome)} em receitas previstas`
+      : "nenhuma receita prevista";
+  const expenseText =
+    forecast.projectedExpenses > 0
+      ? `${formatBRL(forecast.projectedExpenses)} em despesas previstas`
+      : "nenhuma despesa prevista";
+  const details: string[] = [];
+
+  if (forecast.recurringIncome > 0) {
+    details.push(`renda automática até essa data: **${formatBRL(forecast.recurringIncome)}**`);
+  }
+  if (forecast.extraIncome > 0) {
+    details.push(`receitas extras já registradas: **${formatBRL(forecast.extraIncome)}**`);
+  }
+  if (forecast.manualExpenses > 0) {
+    details.push(`lançamentos futuros: **${formatBRL(forecast.manualExpenses)}**`);
+  }
+  if (forecast.fixedExpenses > 0) {
+    details.push(`despesas fixas: **${formatBRL(forecast.fixedExpenses)}**`);
+  }
+
+  const detailsText = details.length ? `\n\nDetalhes considerados: ${details.join("; ")}.` : "";
+
+  return `Projetando até **${paymentDateLabel(payment.date)}**, após o recebimento de **${formatBRL(payment.amount)}**, a estimativa é você ficar com **${formatBRL(forecast.projectedBalance)}**.\n\nComo cheguei nesse valor:\n- Saldo acumulado atual: **${formatBRL(forecast.currentBalance)}**\n- Entradas previstas até essa data: **${incomeText}**\n- Saídas previstas até essa data: **${expenseText}**\n\nCálculo: ${formatBRL(forecast.currentBalance)} + ${formatBRL(forecast.projectedIncome)} - ${formatBRL(forecast.projectedExpenses)} = **${formatBRL(forecast.projectedBalance)}**.${detailsText}\n\nEssa é uma projeção: novos gastos, receitas ou ajustes podem mudar esse valor.`;
+}
+
+function findNextPaymentByDay(day: number) {
+  const state = getFinanceState();
+  const today = localISODate();
+
+  return (
+    Array.from({ length: 12 }, (_, offset) => offsetMonthKey(monthKey(today), offset))
+      .flatMap((paymentMonth) =>
+        recurringIncomeOccurrencesForMonth(state.income, state.incomeOverrides, paymentMonth),
+      )
+      .filter((payment) => payment.date > today && Number(payment.date.slice(8, 10)) === day)
+      .sort((a, b) => a.date.localeCompare(b.date))[0] ?? null
+  );
+}
+
+function answerPaymentProjection(text: string, recentText: string) {
+  const normalized = normalize(text);
+  if (!paymentProjectionIntent(normalized, recentText)) return null;
+
+  const state = getFinanceState();
+  if (!state.income || !isIncomeAutoDepositEnabled(state.income)) {
+    return "Ainda não encontrei uma renda automática ativa. Configure sua renda em **Ajustes** para eu projetar saldos por pagamento.";
+  }
+
+  const day = parsePaydays(text)[0] ?? null;
+  const target = parseTargetMonth(text) ?? parseTargetMonth(recentText);
+  const startOfMonthPayment = isStartOfMonthPaymentReference(normalized);
+  const weeklyReference = isWeeklyPaymentReference(normalized);
+  const ordinal = startOfMonthPayment ? 1 : parsePaymentOrdinal(normalized);
+
+  if (day && !target) {
+    const payment = findNextPaymentByDay(day);
+    if (!payment) {
+      return `Não encontrei um recebimento futuro no dia **${day}**. Confira as datas da sua renda em **Ajustes** ou me diga o mês desejado.`;
+    }
+
+    return answerProjectionUntilPaymentDate(payment);
+  }
+
+  if (!target) {
+    if (normalized.includes("proximo") || normalized.includes("próximo")) return null;
+    return "Consigo projetar por pagamento, sim. Me diga o mês ou a data, por exemplo: `Quanto vou ter no primeiro pagamento de setembro?`";
+  }
+
+  if (target.status === "past-explicit") {
+    return `**${target.label}** já passou. Para projeções por pagamento, escolha a competência atual ou um mês futuro.`;
+  }
+
+  if (target.status === "ambiguous-past") {
+    return `Você quer calcular um pagamento de **${target.label}**?\n\nComo esse mês já passou neste ano, me diga o ano desejado para eu projetar com segurança.`;
+  }
+
+  const payments = recurringIncomeOccurrencesForMonth(
+    state.income,
+    state.incomeOverrides,
+    target.month,
+  ).sort((a, b) => a.date.localeCompare(b.date));
+
+  if (!payments.length) {
+    return `Não encontrei recebimentos automáticos em **${monthLabel(target.month)}**. Confira a configuração da sua renda em **Ajustes**.`;
+  }
+
+  if (
+    state.income.period === "weekly" &&
+    payments.length > 1 &&
+    !day &&
+    !ordinal &&
+    (weeklyReference || normalized.includes("pagamento") || normalized.includes("recebimento"))
+  ) {
+    return weeklyPaymentClarification(target.month, payments);
+  }
+
+  const payment = day
+    ? payments.find((item) => Number(item.date.slice(8, 10)) === day)
+    : ordinal === "last"
+      ? payments[payments.length - 1]
+      : typeof ordinal === "number"
+        ? payments[ordinal - 1]
+        : payments.length === 1
+          ? payments[0]
+          : null;
+
+  if (!payment) {
+    if (day) {
+      return `Não encontrei um pagamento no dia **${day}** em **${monthLabel(target.month)}**. Recebimentos previstos: ${paymentOptionsText(payments)}.`;
+    }
+
+    if (typeof ordinal === "number") {
+      return `Em **${monthLabel(target.month)}**, encontrei apenas **${payments.length}** recebimento${payments.length === 1 ? "" : "s"}. Recebimentos previstos: ${paymentOptionsText(payments)}.`;
+    }
+
+    return `Encontrei mais de um recebimento em **${monthLabel(target.month)}**. Qual deles você quer considerar? ${paymentOptionsText(payments)}.`;
+  }
+
+  if (payment.date <= localISODate()) {
+    return `Esse pagamento de **${monthLabel(target.month)}** já passou. Para projeção por pagamento, escolha uma data futura.`;
+  }
+
+  return answerProjectionUntilPaymentDate(payment);
 }
 
 function answerNextPayment(text: string) {
@@ -1431,6 +1670,11 @@ export function answerLocally(
     return { text: removeExpense(text, month) };
   }
 
+  const paymentProjection = answerPaymentProjection(text, recentText);
+  if (paymentProjection) {
+    return { text: paymentProjection };
+  }
+
   const futureMonthProjection = answerSpecificFutureMonthProjection(text);
   if (futureMonthProjection) {
     return { text: futureMonthProjection };
@@ -1454,7 +1698,10 @@ export function answerLocally(
     return { text: answerNextMonthProjection(month) };
   }
 
-  if (amount && (includesAny(normalized, EXTRA_REVENUE_WORDS) || isAddToBalanceIntent(normalized))) {
+  if (
+    amount &&
+    (includesAny(normalized, EXTRA_REVENUE_WORDS) || isAddToBalanceIntent(normalized))
+  ) {
     const multipleRevenues = registerMultipleRevenues(text, month);
     if (multipleRevenues) return { text: multipleRevenues };
 
@@ -1496,7 +1743,9 @@ export function answerLocally(
 
   if (normalized.includes("saldo") || normalized.includes("disponivel")) {
     const s = summarize(getFinanceState(), month);
-    return { text: `Seu saldo disponível acumulado até ${monthLabel(month)} é **${formatBRL(s.balance)}**.` };
+    return {
+      text: `Seu saldo disponível acumulado até ${monthLabel(month)} é **${formatBRL(s.balance)}**.`,
+    };
   }
 
   if (

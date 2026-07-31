@@ -243,7 +243,9 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
         : {};
   const expenses = (parsed.expenses ?? []).map((expense) => ({
     ...expense,
-    amount: expense.adjustment ? normalizeSignedMoney(expense.amount) : normalizeMoney(expense.amount),
+    amount: expense.adjustment
+      ? normalizeSignedMoney(expense.amount)
+      : normalizeMoney(expense.amount),
     category: normalizeCategory(expense.category),
     description: expense.description?.trim() || "Despesa",
     date: expense.date || localISODate(),
@@ -264,7 +266,8 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
   const deletedFixedExpenseOccurrences = Array.from(
     new Set(
       (parsed.deletedFixedExpenseOccurrences ?? []).filter(
-        (occurrenceId): occurrenceId is string => typeof occurrenceId === "string" && occurrenceId.length > 0,
+        (occurrenceId): occurrenceId is string =>
+          typeof occurrenceId === "string" && occurrenceId.length > 0,
       ),
     ),
   );
@@ -425,9 +428,7 @@ export const financeActions = {
   ) {
     const autoDeposit = details?.autoDeposit ?? true;
     const startsAtMonth =
-      details?.startsAtMonth ??
-      getFinanceState().income?.startsAtMonth ??
-      currentMonthKey();
+      details?.startsAtMonth ?? getFinanceState().income?.startsAtMonth ?? currentMonthKey();
     const income: Income =
       period === "biweekly"
         ? {
@@ -447,9 +448,7 @@ export const financeActions = {
             startsAtMonth,
             payday: period === "monthly" ? clampPayday(details?.payday, 1) : undefined,
             firstPaymentDate:
-              period === "weekly"
-                ? details?.firstPaymentDate || localISODate()
-                : undefined,
+              period === "weekly" ? details?.firstPaymentDate || localISODate() : undefined,
           };
     write({ ...getFinanceState(), income });
   },
@@ -498,7 +497,9 @@ export const financeActions = {
       amount: normalizeMoney(input.amount),
       category: normalizeCategory(input.category?.trim()),
       payday: clampPayday(input.payday, 1),
-      startsAtMonth: isValidMonthKey(input.startsAtMonth) ? input.startsAtMonth! : currentMonthKey(),
+      startsAtMonth: isValidMonthKey(input.startsAtMonth)
+        ? input.startsAtMonth!
+        : currentMonthKey(),
       createdAt: new Date().toISOString(),
     };
     const s = getFinanceState();
@@ -597,8 +598,10 @@ export const financeActions = {
               ...expense,
               ...patch,
               amount: patch.amount != null ? normalizeMoney(patch.amount) : expense.amount,
-              category: patch.category != null ? normalizeCategory(patch.category) : expense.category,
-              payday: patch.payday != null ? clampPayday(patch.payday, expense.payday) : expense.payday,
+              category:
+                patch.category != null ? normalizeCategory(patch.category) : expense.category,
+              payday:
+                patch.payday != null ? clampPayday(patch.payday, expense.payday) : expense.payday,
               description:
                 patch.description != null
                   ? patch.description.trim().slice(0, 120) || "Despesa fixa"
@@ -910,7 +913,7 @@ function biweeklyPaymentsForMonth(income: Income, year: number, monthIndex: numb
   ].filter((payment) => payment.amount > 0);
 }
 
-function isValidIsoDate(value?: string) {
+function isValidIsoDate(value?: string): value is string {
   return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
 }
 
@@ -944,11 +947,10 @@ export function formatDate(iso?: string) {
 function weeklyPaymentsForMonth(income: Income, year: number, monthIndex: number) {
   const start = dateFromIso(isoFromParts(year, monthIndex, 1));
   const end = dateFromIso(isoFromParts(year, monthIndex, daysInMonth(year, monthIndex)));
-  const anchor = dateFromIso(
-    isValidIsoDate(income.firstPaymentDate)
-      ? income.firstPaymentDate!
-      : isoFromParts(year, monthIndex, 1),
-  );
+  const anchorIso = isValidIsoDate(income.firstPaymentDate)
+    ? income.firstPaymentDate
+    : isoFromParts(year, monthIndex, 1);
+  const anchor = dateFromIso(anchorIso);
   const first = new Date(anchor);
   const diffDays = Math.floor((start.getTime() - first.getTime()) / 86400000);
   if (diffDays > 0) first.setDate(first.getDate() + Math.ceil(diffDays / 7) * 7);
@@ -1098,10 +1100,7 @@ export function recurringIncomeReceivedUntil(
     .reduce((sum, payment) => sum + payment.amount, 0);
 }
 
-export function cashBalanceUntil(
-  state: FinanceState,
-  date = new Date(),
-) {
+export function cashBalanceUntil(state: FinanceState, date = new Date()) {
   const cutoff = localISODate(date);
   const cutoffMonth = monthKey(cutoff);
   const startMonth = state.income?.startsAtMonth ?? currentMonthKey();
@@ -1116,10 +1115,10 @@ export function cashBalanceUntil(
   const manualSpent = state.expenses
     .filter((expense) => expense.date <= cutoff)
     .reduce((sum, expense) => sum + expense.amount, 0);
-  const fixedSpent = monthKeysBetween(earliestMonthKey([
-    startMonth,
-    ...state.fixedExpenses.map((expense) => expense.startsAtMonth),
-  ]), cutoffMonth).reduce(
+  const fixedSpent = monthKeysBetween(
+    earliestMonthKey([startMonth, ...state.fixedExpenses.map((expense) => expense.startsAtMonth)]),
+    cutoffMonth,
+  ).reduce(
     (sum, month) =>
       sum +
       fixedExpensesDueUntil(
@@ -1155,9 +1154,11 @@ export function nextIncomePayment(income: Income | null, from = new Date()) {
     return recurringPaymentsForMonth(income, key);
   }).flat();
 
-  return candidates
-    .filter((payment) => payment.date > today)
-    .sort((a, b) => a.date.localeCompare(b.date))[0] ?? null;
+  return (
+    candidates
+      .filter((payment) => payment.date > today)
+      .sort((a, b) => a.date.localeCompare(b.date))[0] ?? null
+  );
 }
 
 export function forecastNextMonth(state: FinanceState, fromMonth = currentMonthKey()) {
@@ -1180,24 +1181,24 @@ export function forecastNextMonth(state: FinanceState, fromMonth = currentMonthK
   };
 }
 
-export function forecastFutureMonth(state: FinanceState, targetMonth: string, from = new Date()) {
+export function forecastUntilDate(state: FinanceState, targetDate: string, from = new Date()) {
   const today = localISODate(from);
   const currentMonth = monthKey(today);
-  const targetEnd = monthEndISO(targetMonth);
+  const targetMonth = monthKey(targetDate);
   const months = monthKeysBetween(currentMonth, targetMonth);
   const currentCash = cashBalanceUntil(state, from);
-  const projectedCash = cashBalanceUntilISO(state, targetEnd);
+  const projectedCash = cashBalanceUntilISO(state, targetDate);
   const recurringIncome = months
     .flatMap((month) =>
       recurringIncomeOccurrencesForMonth(state.income, state.incomeOverrides, month),
     )
-    .filter((payment) => payment.date > today && payment.date <= targetEnd)
+    .filter((payment) => payment.date > today && payment.date <= targetDate)
     .reduce((sum, payment) => sum + payment.amount, 0);
   const extraIncome = state.revenues
-    .filter((revenue) => revenue.date > today && revenue.date <= targetEnd)
+    .filter((revenue) => revenue.date > today && revenue.date <= targetDate)
     .reduce((sum, revenue) => sum + revenue.amount, 0);
   const manualExpenses = state.expenses
-    .filter((expense) => expense.date > today && expense.date <= targetEnd)
+    .filter((expense) => expense.date > today && expense.date <= targetDate)
     .reduce((sum, expense) => sum + expense.amount, 0);
   const fixedExpenseOccurrences = months
     .flatMap((month) =>
@@ -1208,17 +1209,17 @@ export function forecastFutureMonth(state: FinanceState, targetMonth: string, fr
         state.fixedExpenseOccurrenceOverrides,
       ),
     )
-    .filter((expense) => expense.date > today && expense.date <= targetEnd);
+    .filter((expense) => expense.date > today && expense.date <= targetDate);
   const fixedExpenses = fixedExpenseOccurrences.reduce((sum, expense) => sum + expense.amount, 0);
   const futureExpenseCount = state.expenses.filter(
-    (expense) => expense.date > today && expense.date <= targetEnd,
+    (expense) => expense.date > today && expense.date <= targetDate,
   ).length;
   const fixedExpenseCount = fixedExpenseOccurrences.length;
 
   return {
     currentMonth,
     targetMonth,
-    targetEnd,
+    targetDate,
     currentBalance: currentCash.balance,
     projectedBalance: projectedCash.balance,
     recurringIncome,
@@ -1229,6 +1230,14 @@ export function forecastFutureMonth(state: FinanceState, targetMonth: string, fr
     projectedExpenses: manualExpenses + fixedExpenses,
     futureExpenseCount,
     fixedExpenseCount,
+  };
+}
+
+export function forecastFutureMonth(state: FinanceState, targetMonth: string, from = new Date()) {
+  const targetEnd = monthEndISO(targetMonth);
+  return {
+    ...forecastUntilDate(state, targetEnd, from),
+    targetEnd,
   };
 }
 
@@ -1278,13 +1287,10 @@ export function summarize(state: FinanceState, month = currentMonthKey()) {
   const totalAllTime = cumulativeCash.spent;
   const totalRevenueAllTime = state.revenues.reduce((sum, r) => sum + r.amount, 0);
   const byCategory = Object.entries(
-    [...monthExpenses, ...dueFixedExpenses].reduce<Record<string, number>>(
-      (acc, e) => {
-        acc[e.category] = (acc[e.category] ?? 0) + e.amount;
-        return acc;
-      },
-      {},
-    ),
+    [...monthExpenses, ...dueFixedExpenses].reduce<Record<string, number>>((acc, e) => {
+      acc[e.category] = (acc[e.category] ?? 0) + e.amount;
+      return acc;
+    }, {}),
   )
     .map(([category, total]) => ({ category, total }))
     .sort((a, b) => b.total - a.total);
@@ -1332,7 +1338,9 @@ export function summarize(state: FinanceState, month = currentMonthKey()) {
     dailyAverage,
     projection,
     dailyBudgetLeft:
-      dayOfMonth < daysInMonth ? cumulativeCash.balance / (daysInMonth - dayOfMonth) : cumulativeCash.balance,
+      dayOfMonth < daysInMonth
+        ? cumulativeCash.balance / (daysInMonth - dayOfMonth)
+        : cumulativeCash.balance,
   };
 }
 
@@ -1345,9 +1353,8 @@ export function lastMonths(state: FinanceState, n = 6) {
     out.push({
       month: key,
       label: d.toLocaleDateString("pt-BR", { month: "short" }).replace(".", ""),
-      total: state.expenses
-        .filter((e) => monthKey(e.date) === key)
-        .reduce((s, e) => s + e.amount, 0) +
+      total:
+        state.expenses.filter((e) => monthKey(e.date) === key).reduce((s, e) => s + e.amount, 0) +
         fixedExpensesDueUntil(
           state.fixedExpenses,
           dateFromIso(monthEndISO(key)),
