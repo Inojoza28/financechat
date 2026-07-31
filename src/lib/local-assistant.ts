@@ -730,6 +730,10 @@ function formatSummary(month: string) {
 
 function formatExpenseConfirmation(expense: Expense, month: string, isFuture = false) {
   const s = summarize(getFinanceState(), month);
+  if (isFuture) {
+    return `Pronto, deixei programada a despesa de **${formatBRL(expense.amount)}** em ${expense.category} para **${monthLabel(month)}**.\n\nEla ainda não foi debitada do seu saldo atual. Você pode acompanhar esse lançamento em **Lançamentos futuros**, no **Dashboard**. Quando essa competência chegar, ele passa a entrar no histórico e será considerado nos cálculos normalmente.`;
+  }
+
   const limitText =
     s.spendingLimit == null
       ? ""
@@ -739,11 +743,7 @@ function formatExpenseConfirmation(expense: Expense, month: string, isFuture = f
           ? `\n\nAtenção: você já usou **${s.limitUsedPercent}%** do seu limite. Ainda restam **${formatBRL(Math.max(0, s.limitRemaining ?? 0))}**.`
           : `\n\nVocê usou **${s.limitUsedPercent}%** do limite e ainda tem **${formatBRL(Math.max(0, s.limitRemaining ?? 0))}** para gastar dentro do teto definido.`;
 
-  const futureText = isFuture
-    ? `\n\nComo esse lançamento ficou para **${monthLabel(month)}**, ele não foi descontado do saldo atual. Ele será considerado nas projeções e no saldo quando essa competência chegar.`
-    : "";
-
-  return `Pronto, registrei a despesa de **${formatBRL(expense.amount)}** em ${expense.category} para **${monthLabel(month)}**.\n\nTotal gasto no período: **${formatBRL(s.spent)}**. Saldo disponível: **${formatBRL(s.balance)}**.${limitText}${futureText}`;
+  return `Pronto, registrei a despesa de **${formatBRL(expense.amount)}** em ${expense.category} para **${monthLabel(month)}**.\n\nTotal gasto no período: **${formatBRL(s.spent)}**. Saldo disponível: **${formatBRL(s.balance)}**.${limitText}`;
 }
 
 function formatRevenueConfirmation(revenue: Revenue, month: string) {
