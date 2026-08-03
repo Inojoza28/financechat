@@ -2326,7 +2326,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
       </Dialog>
 
       <Dialog open={fixedExpenseModalOpen} onOpenChange={(open) => !open && closeFixedExpense()}>
-        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-y-auto rounded-[20px] p-4 sm:max-w-md sm:p-5">
+        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-x-hidden overflow-y-auto rounded-[20px] p-4 sm:max-w-md sm:p-5">
           <DialogHeader className="text-left">
             <div className="flex items-start gap-2 pr-6">
               {fixedExpenseStep === "form" && !selectedFixedExpense && (
@@ -2476,7 +2476,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           type="month"
                           value={fixedStartsAtMonth}
                           onChange={(event) => setFixedStartsAtMonth(event.target.value)}
-                          className="mt-1.5 h-9 w-full min-w-0 rounded-xl"
+                          className="date-input-contained mt-1.5 h-9 w-full min-w-0 rounded-xl"
                         />
                       </div>
                     </div>
@@ -2605,7 +2605,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           type="month"
                           value={fixedStartsAtMonth}
                           onChange={(event) => setFixedStartsAtMonth(event.target.value)}
-                          className="mt-1.5 h-9 w-full min-w-0 rounded-xl"
+                          className="date-input-contained mt-1.5 h-9 w-full min-w-0 rounded-xl"
                         />
                       </div>
                     </div>
