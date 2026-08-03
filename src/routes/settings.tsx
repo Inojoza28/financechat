@@ -11,6 +11,7 @@
   Moon,
   RotateCcw,
   ShieldAlert,
+  Sparkles,
   SunMedium,
   Trash2,
   Upload,
@@ -318,6 +319,92 @@ function SettingsContent() {
               </button>
             );
           })}
+        </div>
+      </Section>
+
+      <Section
+        icon={Sparkles}
+        title="Sugestões inteligentes"
+        description="Permita que o Fin mostre ações rápidas apenas quando elas fizerem sentido na conversa."
+      >
+        <div className="rounded-2xl border border-border/55 bg-background/65 p-3 shadow-[inset_0_1px_0_hsl(var(--foreground)/0.035)] dark:bg-surface-muted/35 dark:shadow-none">
+          <div className="min-w-0">
+            <p className="text-[14px] font-semibold leading-tight">
+              Mostrar sugestões inteligentes da IA
+            </p>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+              Recomendações discretas aparecem dentro da conversa em momentos úteis do dia ou do
+              mês.
+            </p>
+          </div>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {[
+              {
+                enabled: true,
+                title: "Ativadas",
+                description: "Aparecem só em momentos úteis.",
+                icon: Sparkles,
+              },
+              {
+                enabled: false,
+                title: "Desativadas",
+                description: "O chat fica sem recomendações automáticas.",
+                icon: Moon,
+              },
+            ].map((option) => {
+              const selected = state.showSmartSuggestions === option.enabled;
+              const OptionIcon = option.icon;
+
+              return (
+                <button
+                  key={option.title}
+                  type="button"
+                  onClick={() => {
+                    if (selected) return;
+                    financeActions.setShowSmartSuggestions(option.enabled);
+                    toast.success(
+                      option.enabled ? "Sugestões ativadas." : "Sugestões desativadas.",
+                    );
+                  }}
+                  className={`group flex min-w-0 items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 ${
+                    selected
+                      ? "border-emerald-400/28 bg-emerald-500/[0.075] text-foreground shadow-[0_8px_24px_hsl(155_70%_38%/0.08)] dark:bg-emerald-300/[0.09] dark:shadow-none"
+                      : "border-border/45 bg-surface/55 text-muted-foreground hover:border-emerald-400/20 hover:bg-surface hover:text-foreground dark:bg-background/25 dark:hover:bg-background/40"
+                  }`}
+                  aria-pressed={selected}
+                >
+                  <span
+                    className={`flex size-8 shrink-0 items-center justify-center rounded-full border transition-colors ${
+                      selected
+                        ? "border-emerald-400/24 bg-emerald-500/[0.12] text-emerald-700 dark:text-emerald-200"
+                        : "border-border/55 bg-background/65 text-muted-foreground group-hover:text-foreground"
+                    }`}
+                  >
+                    <OptionIcon className="size-3.5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-semibold leading-tight">
+                      {option.title}
+                    </span>
+                    <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">
+                      {option.description}
+                    </span>
+                  </span>
+                  <span
+                    className={`flex size-5 shrink-0 items-center justify-center rounded-full transition-colors ${
+                      selected
+                        ? "bg-emerald-500 text-white dark:bg-emerald-400 dark:text-slate-950"
+                        : "bg-secondary/70 text-transparent group-hover:text-muted-foreground"
+                    }`}
+                    aria-hidden="true"
+                  >
+                    <Check className="size-3" />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </Section>
 

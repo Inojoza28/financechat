@@ -62,6 +62,7 @@ import {
   monthKey,
   monthLabel,
   monthlyIncome,
+  offsetMonthKey,
   recurringIncomeOccurrencesForMonth,
   summarize,
   useFinance,
@@ -277,11 +278,14 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const today = localISODate();
   const activeFixedExpenses = state.fixedExpenses.filter((expense) => !expense.canceledAt);
   const futureLaunches = state.expenses
-    .filter((expense) => expense.date > today)
+    .filter((expense) => !expense.balanceAdjustment && expense.date > today)
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
   const visibleFutureLaunches = futureLaunches.slice(0, visibleFutureLaunchCount);
   const hasMoreFutureLaunches = visibleFutureLaunchCount < futureLaunches.length;
+  const futureLaunchExampleMonth = monthLabel(offsetMonthKey(currentMonthKey(), 1)).split(
+    " de ",
+  )[0];
   const recentExpenses: RecentLaunch[] = state.expenses
     .filter((expense) => expense.date >= recentCutoff && expense.date <= today)
     .map((expense) => ({ ...expense, kind: "expense" }));
@@ -333,6 +337,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const visibleRecentLaunches = recentLaunches.slice(0, visibleLaunchCount);
   const hasMoreRecentLaunches = visibleLaunchCount < recentLaunches.length;
   const selectedExpenseIsFuture = Boolean(selectedExpense && selectedExpense.date > today);
+  const selectedExpenseIsBalanceAdjustment = Boolean(selectedExpense?.balanceAdjustment);
 
   useEffect(() => {
     setCardsEditing(false);
@@ -453,7 +458,9 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const openExpense = (expense: Expense) => {
     setSelectedExpense(expense);
     setEditDescription(expense.description);
-    setEditAmount(String(expense.amount).replace(".", ","));
+    setEditAmount(
+      String(expense.balanceAdjustment ? -expense.amount : expense.amount).replace(".", ","),
+    );
     setEditCategory(expense.category);
     setEditDate(expense.date);
     setExpenseModalOpen(true);
@@ -537,6 +544,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
 
   const saveExpense = () => {
     const amount = moneyFromInput(editAmount);
+    const amountToStore = selectedExpenseIsBalanceAdjustment ? -amount : amount;
     const description = editDescription.trim();
 
     if (!description) {
@@ -549,7 +557,11 @@ function DashboardContent({ state }: { state: FinanceState }) {
       amount === 0 ||
       ((!selectedExpense || !selectedExpense.adjustment) && amount < 0)
     ) {
-      toast.error("Informe um valor válido para a despesa.");
+      toast.error(
+        selectedExpenseIsBalanceAdjustment
+          ? "Informe uma diferença válida para o ajuste."
+          : "Informe um valor válido para a despesa.",
+      );
       return;
     }
 
@@ -561,11 +573,13 @@ function DashboardContent({ state }: { state: FinanceState }) {
     if (selectedExpense) {
       financeActions.updateExpense(selectedExpense.id, {
         description,
-        amount,
-        category: editCategory,
+        amount: amountToStore,
+        category: selectedExpenseIsBalanceAdjustment ? "Ajuste de saldo" : editCategory,
         date: editDate || selectedExpense.date,
       });
-      toast.success("Despesa atualizada.");
+      toast.success(
+        selectedExpenseIsBalanceAdjustment ? "Ajuste de saldo atualizado." : "Despesa atualizada.",
+      );
     } else {
       financeActions.addExpense({
         description,
@@ -1087,8 +1101,10 @@ function DashboardContent({ state }: { state: FinanceState }) {
             {futureLaunches.length === 0 ? (
               <p className="rounded-2xl bg-secondary/45 px-3 py-3 text-[13px] leading-relaxed text-muted-foreground">
                 Nenhuma despesa futura ainda. Ao registrar algo como{" "}
-                <span className="font-medium text-foreground">R$ 50 para agosto</span>, ela fica
-                aqui até chegar a competência.
+                <span className="font-medium text-foreground">
+                  R$ 50 para {futureLaunchExampleMonth}
+                </span>
+                , ela fica aqui até chegar a competência.
               </p>
             ) : (
               <>
@@ -1203,27 +1219,48 @@ function DashboardContent({ state }: { state: FinanceState }) {
                       <button
                         type="button"
                         onClick={() => openExpense(entry)}
-                        className="flex w-full items-center justify-between gap-3 rounded-xl py-2.5 text-left transition-colors hover:bg-secondary/60 focus-visible:bg-secondary/60"
+                        className={`flex w-full items-center justify-between gap-3 rounded-xl py-2.5 text-left transition-colors hover:bg-secondary/60 focus-visible:bg-secondary/60 ${
+                          entry.balanceAdjustment
+                            ? "bg-sky-50/45 ring-1 ring-sky-100/75 dark:bg-primary/[0.07] dark:ring-primary/15"
+                            : ""
+                        }`}
                       >
                         <div className="min-w-0 px-2">
                           <div className="flex min-w-0 items-center gap-2">
                             <p className="truncate text-[14px] font-medium">{entry.description}</p>
-                            {entry.manual && (
+                            {entry.balanceAdjustment ? (
+                              <Badge
+                                variant="outline"
+                                className="shrink-0 rounded-full border border-sky-200/80 bg-sky-100/70 px-2 py-0 text-[10px] font-medium text-sky-700 shadow-none dark:border-primary/30 dark:bg-primary/[0.14] dark:text-primary"
+                              >
+                                Ajuste de saldo
+                              </Badge>
+                            ) : entry.manual ? (
                               <Badge
                                 variant="outline"
                                 className="shrink-0 rounded-full border border-sky-200/70 bg-sky-50 px-2 py-0 text-[10px] font-medium text-sky-700 shadow-none dark:border-primary/25 dark:bg-primary/[0.12] dark:text-primary"
                               >
                                 Manual
                               </Badge>
-                            )}
+                            ) : null}
                           </div>
                           <p className="text-[12px] text-muted-foreground">
-                            {entry.category} ·{" "}
+                            {entry.balanceAdjustment ? "Correção manual" : entry.category} ·{" "}
                             {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
                           </p>
                         </div>
-                        <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold tabular-nums">
-                          {formatBRL(entry.amount)}
+                        <span
+                          className={`flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold tabular-nums ${
+                            entry.balanceAdjustment
+                              ? entry.amount < 0
+                                ? "text-emerald-700 dark:text-success"
+                                : "text-rose-700 dark:text-destructive"
+                              : ""
+                          }`}
+                        >
+                          {entry.balanceAdjustment
+                            ? `${entry.amount < 0 ? "+" : "-"} ${formatBRL(Math.abs(entry.amount))}`
+                            : formatBRL(entry.amount)}
                           <Pencil className="size-3.5 text-muted-foreground" />
                         </span>
                       </button>
@@ -1332,13 +1369,21 @@ function DashboardContent({ state }: { state: FinanceState }) {
       <Dialog open={expenseModalOpen} onOpenChange={(open) => !open && closeExpense()}>
         <DialogContent className="rounded-[20px] sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{selectedExpense ? "Editar despesa" : "Novo lançamento"}</DialogTitle>
+            <DialogTitle>
+              {selectedExpenseIsBalanceAdjustment
+                ? "Editar ajuste de saldo"
+                : selectedExpense
+                  ? "Editar despesa"
+                  : "Novo lançamento"}
+            </DialogTitle>
             <DialogDescription>
               {selectedExpenseIsFuture
                 ? "Ajuste esta despesa programada. Ela continua sem afetar o saldo atual enquanto permanecer em uma data futura."
-                : selectedExpense
-                  ? "Ajuste os dados do lançamento. Os resumos e gráficos são atualizados na hora."
-                  : "Adicione uma despesa manualmente. Ela aparecerá nos últimos lançamentos com identificação própria."}
+                : selectedExpenseIsBalanceAdjustment
+                  ? "Esse lançamento representa uma correção manual do saldo, não uma despesa ou receita comum."
+                  : selectedExpense
+                    ? "Ajuste os dados do lançamento. Os resumos e gráficos são atualizados na hora."
+                    : "Adicione uma despesa manualmente. Ela aparecerá nos últimos lançamentos com identificação própria."}
             </DialogDescription>
           </DialogHeader>
 
@@ -1358,7 +1403,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
             <div className="grid min-w-0 gap-3 sm:grid-cols-2">
               <div className="min-w-0">
                 <Label htmlFor="expense-amount" className="text-[13px]">
-                  Valor
+                  {selectedExpenseIsBalanceAdjustment ? "Diferença aplicada" : "Valor"}
                 </Label>
                 <Input
                   id="expense-amount"
@@ -1386,18 +1431,24 @@ function DashboardContent({ state }: { state: FinanceState }) {
               <Label htmlFor="expense-category" className="text-[13px]">
                 Categoria
               </Label>
-              <select
-                id="expense-category"
-                value={editCategory}
-                onChange={(event) => setEditCategory(event.target.value)}
-                className="mt-1.5 h-10 w-full rounded-xl border border-input bg-background px-3 text-[14px] outline-none transition-colors focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring/20"
-              >
-                {CATEGORIES.map((category) => (
-                  <option key={category} value={category}>
-                    {category}
-                  </option>
-                ))}
-              </select>
+              {selectedExpenseIsBalanceAdjustment ? (
+                <div className="mt-1.5 flex h-10 items-center rounded-xl border border-input bg-secondary/45 px-3 text-[14px] text-muted-foreground">
+                  Ajuste de saldo
+                </div>
+              ) : (
+                <select
+                  id="expense-category"
+                  value={editCategory}
+                  onChange={(event) => setEditCategory(event.target.value)}
+                  className="mt-1.5 h-10 w-full rounded-xl border border-input bg-background px-3 text-[14px] outline-none transition-colors focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring/20"
+                >
+                  {CATEGORIES.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
 
@@ -1413,11 +1464,17 @@ function DashboardContent({ state }: { state: FinanceState }) {
                   </AlertDialogTrigger>
                   <AlertDialogContent className="rounded-[20px]">
                     <AlertDialogHeader>
-                      <AlertDialogTitle>Excluir esta despesa?</AlertDialogTitle>
+                      <AlertDialogTitle>
+                        {selectedExpenseIsBalanceAdjustment
+                          ? "Excluir este ajuste de saldo?"
+                          : "Excluir esta despesa?"}
+                      </AlertDialogTitle>
                       <AlertDialogDescription>
                         {selectedExpenseIsFuture
                           ? "Essa ação remove apenas esta despesa programada. Como ela ainda não foi debitada, o saldo atual não será alterado."
-                          : "Essa ação remove o lançamento e atualiza saldo, limite, gráficos e projeções. Não dá para desfazer."}
+                          : selectedExpenseIsBalanceAdjustment
+                            ? "Essa ação remove a correção manual e recalcula o saldo acumulado. Não dá para desfazer."
+                            : "Essa ação remove o lançamento e atualiza saldo, limite, gráficos e projeções. Não dá para desfazer."}
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="gap-2 sm:space-x-0">

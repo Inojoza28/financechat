@@ -47,6 +47,7 @@ export type Expense = {
   date: string; // ISO date (yyyy-mm-dd)
   createdAt: string;
   adjustment?: boolean;
+  balanceAdjustment?: boolean;
   manual?: boolean;
 };
 
@@ -100,11 +101,20 @@ export type PendingAssistantAction =
       category: string;
       month: string;
       createdAt: string;
+    }
+  | {
+      type: "balanceAdjustment";
+      targetBalance: number;
+      currentBalance: number;
+      difference: number;
+      month: string;
+      createdAt: string;
     };
 
 export type FinanceState = {
   assistantName: string;
   theme: ThemeMode;
+  showSmartSuggestions: boolean;
   currency: string;
   income: Income | null;
   spendingLimit: number | null;
@@ -136,6 +146,7 @@ const STORAGE_KEY = "finance-chat.v1";
 const initialState: FinanceState = {
   assistantName: "Fin",
   theme: "light",
+  showSmartSuggestions: true,
   currency: "BRL",
   income: null,
   spendingLimit: null,
@@ -154,6 +165,12 @@ const LEGACY_GENERAL_CATEGORY = String.fromCharCode(79, 117, 116, 114, 111, 115)
 
 const normalizeCategory = (category?: string) =>
   category === LEGACY_GENERAL_CATEGORY || !category ? "Geral" : category;
+
+const normalizeText = (value: string) =>
+  value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 
 const normalizeMoney = (value: number | undefined) =>
   Math.round(Math.abs(Number(value) || 0) * 100) / 100;
@@ -244,16 +261,27 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
       : parsed.messages?.length
         ? { [fallbackMonth]: parsed.messages }
         : {};
-  const expenses = (parsed.expenses ?? []).map((expense) => ({
-    ...expense,
-    amount: expense.adjustment
-      ? normalizeSignedMoney(expense.amount)
-      : normalizeMoney(expense.amount),
-    category: normalizeCategory(expense.category),
-    description: expense.description?.trim() || "Despesa",
-    date: expense.date || localISODate(),
-    createdAt: expense.createdAt || new Date().toISOString(),
-  }));
+  const expenses = (parsed.expenses ?? []).map((expense) => {
+    const isBalanceAdjustment =
+      Boolean(expense.balanceAdjustment) ||
+      normalizeText(expense.description ?? "").includes("ajuste de saldo") ||
+      normalizeText(expense.category ?? "").includes("ajuste de saldo");
+
+    return {
+      ...expense,
+      amount: expense.adjustment
+        ? normalizeSignedMoney(expense.amount)
+        : normalizeMoney(expense.amount),
+      category: isBalanceAdjustment ? "Ajuste de saldo" : normalizeCategory(expense.category),
+      description: isBalanceAdjustment
+        ? expense.description?.trim() || "Saldo ajustado manualmente"
+        : expense.description?.trim() || "Despesa",
+      date: expense.date || localISODate(),
+      createdAt: expense.createdAt || new Date().toISOString(),
+      balanceAdjustment: isBalanceAdjustment || undefined,
+      adjustment: expense.adjustment || isBalanceAdjustment || undefined,
+    };
+  });
   const fixedExpenses = (parsed.fixedExpenses ?? []).map((expense) => ({
     ...expense,
     amount: normalizeMoney(expense.amount),
@@ -335,6 +363,7 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
     ...parsed,
     assistantName: parsed.assistantName?.trim().slice(0, 30) || initialState.assistantName,
     theme: parsed.theme === "dark" ? "dark" : "light",
+    showSmartSuggestions: parsed.showSmartSuggestions ?? initialState.showSmartSuggestions,
     currency: parsed.currency || initialState.currency,
     income,
     spendingLimit,
@@ -563,6 +592,24 @@ export const financeActions = {
     };
     write({ ...s, expenses: [...s.expenses, expense] });
   },
+  addBalanceAdjustment(difference: number) {
+    const normalized = normalizeSignedMoney(difference);
+    if (Math.abs(normalized) < 0.01) return null;
+    const s = getFinanceState();
+    const expense: Expense = {
+      id: uid(),
+      description: "Saldo ajustado manualmente",
+      amount: -normalized,
+      category: "Ajuste de saldo",
+      date: localISODate(),
+      createdAt: new Date().toISOString(),
+      adjustment: true,
+      balanceAdjustment: true,
+      manual: true,
+    };
+    write({ ...s, expenses: [...s.expenses, expense] });
+    return expense;
+  },
   updateExpense(id: string, patch: Partial<Omit<Expense, "id" | "createdAt">>) {
     const s = getFinanceState();
     write({
@@ -775,6 +822,9 @@ export const financeActions = {
   },
   setTheme(theme: ThemeMode) {
     write({ ...getFinanceState(), theme });
+  },
+  setShowSmartSuggestions(showSmartSuggestions: boolean) {
+    write({ ...getFinanceState(), showSmartSuggestions });
   },
   setMessages(messages: UIMessage[]) {
     write({ ...getFinanceState(), messages });
@@ -1205,7 +1255,9 @@ export function forecastUntilDate(state: FinanceState, targetDate: string, from 
     .filter((revenue) => revenue.date > today && revenue.date <= targetDate)
     .reduce((sum, revenue) => sum + revenue.amount, 0);
   const manualExpenses = state.expenses
-    .filter((expense) => expense.date > today && expense.date <= targetDate)
+    .filter(
+      (expense) => !expense.balanceAdjustment && expense.date > today && expense.date <= targetDate,
+    )
     .reduce((sum, expense) => sum + expense.amount, 0);
   const fixedExpenseOccurrences = months
     .flatMap((month) =>
@@ -1219,7 +1271,7 @@ export function forecastUntilDate(state: FinanceState, targetDate: string, from 
     .filter((expense) => expense.date > today && expense.date <= targetDate);
   const fixedExpenses = fixedExpenseOccurrences.reduce((sum, expense) => sum + expense.amount, 0);
   const futureExpenseCount = state.expenses.filter(
-    (expense) => expense.date > today && expense.date <= targetDate,
+    (expense) => !expense.balanceAdjustment && expense.date > today && expense.date <= targetDate,
   ).length;
   const fixedExpenseCount = fixedExpenseOccurrences.length;
 
@@ -1272,7 +1324,8 @@ export function summarize(state: FinanceState, month = currentMonthKey()) {
   );
   const dueFixedExpenses = monthFixedExpenses.filter((expense) => expense.date <= cutoff);
   const monthRevenues = state.revenues.filter((r) => monthKey(r.date) === month);
-  const manualSpent = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const spendingExpenses = monthExpenses.filter((expense) => !expense.balanceAdjustment);
+  const manualSpent = spendingExpenses.reduce((sum, e) => sum + e.amount, 0);
   const fixedSpent = dueFixedExpenses.reduce((sum, e) => sum + e.amount, 0);
   const plannedFixedSpent = monthFixedExpenses.reduce((sum, e) => sum + e.amount, 0);
   const spent = manualSpent + fixedSpent;
@@ -1294,7 +1347,7 @@ export function summarize(state: FinanceState, month = currentMonthKey()) {
   const totalAllTime = cumulativeCash.spent;
   const totalRevenueAllTime = state.revenues.reduce((sum, r) => sum + r.amount, 0);
   const byCategory = Object.entries(
-    [...monthExpenses, ...dueFixedExpenses].reduce<Record<string, number>>((acc, e) => {
+    [...spendingExpenses, ...dueFixedExpenses].reduce<Record<string, number>>((acc, e) => {
       acc[e.category] = (acc[e.category] ?? 0) + e.amount;
       return acc;
     }, {}),
@@ -1336,8 +1389,8 @@ export function summarize(state: FinanceState, month = currentMonthKey()) {
     cumulativeSpent: cumulativeCash.spent,
     totalAllTime,
     totalRevenueAllTime,
-    count: monthExpenses.length + dueFixedExpenses.length,
-    manualExpenseCount: monthExpenses.length,
+    count: spendingExpenses.length + dueFixedExpenses.length,
+    manualExpenseCount: spendingExpenses.length,
     fixedExpenseCount: dueFixedExpenses.length,
     plannedFixedExpenseCount: monthFixedExpenses.length,
     revenueCount: monthRevenues.length,
@@ -1361,7 +1414,9 @@ export function lastMonths(state: FinanceState, n = 6) {
       month: key,
       label: d.toLocaleDateString("pt-BR", { month: "short" }).replace(".", ""),
       total:
-        state.expenses.filter((e) => monthKey(e.date) === key).reduce((s, e) => s + e.amount, 0) +
+        state.expenses
+          .filter((e) => !e.balanceAdjustment && monthKey(e.date) === key)
+          .reduce((s, e) => s + e.amount, 0) +
         fixedExpensesDueUntil(
           state.fixedExpenses,
           dateFromIso(monthEndISO(key)),

@@ -1,6 +1,8 @@
 ﻿import {
   cashBalanceUntil,
+  currentMonthKey,
   financeActions,
+  fixedExpenseOccurrencesForMonth,
   forecastFutureMonth,
   forecastNextMonth,
   forecastUntilDate,
@@ -26,6 +28,9 @@ import { SUPPORT_COMMAND } from "@/lib/support";
 type AssistantResult = {
   text: string;
 };
+
+const SEQUENTIAL_SPENDING_ALERT_KEY = "heyfin.sequential-spending-alerts.v1";
+const SEQUENTIAL_SPENDING_WINDOW_HOURS = 4;
 
 type ConversationContext = {
   messages?: Array<{
@@ -952,7 +957,99 @@ function isoDateDaysAgo(days: number) {
 }
 
 function expenseLine(expense: Expense) {
+  if (expense.balanceAdjustment) {
+    const difference = -expense.amount;
+    return `Ajuste de saldo: ${difference >= 0 ? "+" : "-"} ${formatBRL(Math.abs(difference))} — ${expense.description}`;
+  }
+
   return `${formatBRL(expense.amount)} em ${expense.category}: ${expense.description}`;
+}
+
+function readSequentialSpendingAlertKeys() {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(SEQUENTIAL_SPENDING_ALERT_KEY) ?? "[]");
+    return Array.isArray(parsed)
+      ? parsed.filter((item): item is string => typeof item === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberSequentialSpendingAlert(key: string) {
+  if (typeof window === "undefined") return;
+
+  const next = Array.from(new Set([...readSequentialSpendingAlertKeys(), key])).slice(-80);
+  try {
+    window.localStorage.setItem(SEQUENTIAL_SPENDING_ALERT_KEY, JSON.stringify(next));
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+function buildSequentialSpendingAlert(newExpenses: Expense[]) {
+  const today = localISODate();
+  const hasCurrentExpense = newExpenses.some(
+    (expense) => expense.amount > 0 && !expense.adjustment && expense.date === today,
+  );
+
+  if (!hasCurrentExpense) return "";
+
+  const now = new Date();
+  const nowMs = now.getTime();
+  const windowStartMs = nowMs - SEQUENTIAL_SPENDING_WINDOW_HOURS * 60 * 60 * 1000;
+  const state = getFinanceState();
+  const recentExpenses = state.expenses
+    .filter((expense) => {
+      if (expense.amount <= 0 || expense.adjustment || expense.date > today) return false;
+      const createdAtMs = new Date(expense.createdAt).getTime();
+      return (
+        Number.isFinite(createdAtMs) &&
+        createdAtMs >= windowStartMs &&
+        createdAtMs <= nowMs + 60_000
+      );
+    })
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+
+  if (recentExpenses.length < 2) return "";
+
+  const recentTotal = recentExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const currentBalance = cashBalanceUntil(state, now).balance;
+  const estimatedBalanceBeforeRecentExpenses = currentBalance + recentTotal;
+  const recentShare =
+    estimatedBalanceBeforeRecentExpenses > 0
+      ? Math.round((recentTotal / estimatedBalanceBeforeRecentExpenses) * 100)
+      : 0;
+  const dynamicThreshold =
+    estimatedBalanceBeforeRecentExpenses > 0
+      ? Math.max(120, Math.min(300, estimatedBalanceBeforeRecentExpenses * 0.15))
+      : 120;
+  const shouldAlert =
+    recentTotal >= 300 ||
+    (recentTotal >= 80 &&
+      estimatedBalanceBeforeRecentExpenses > 0 &&
+      recentTotal >= dynamicThreshold);
+
+  if (!shouldAlert) return "";
+
+  const alertBucket = Math.floor(now.getHours() / SEQUENTIAL_SPENDING_WINDOW_HOURS);
+  const alertKey = `${today}:${alertBucket}`;
+  if (readSequentialSpendingAlertKeys().includes(alertKey)) return "";
+
+  rememberSequentialSpendingAlert(alertKey);
+
+  const percentageText =
+    recentShare > 0
+      ? ` Isso representa cerca de **${recentShare}%** do saldo que você tinha antes desses gastos recentes.`
+      : "";
+  const limitText =
+    state.spendingLimit && recentTotal >= state.spendingLimit * 0.15
+      ? ` Também é uma fatia relevante do seu limite de gastos do período.`
+      : "";
+
+  return `\n\n**Alerta de consumo rápido:** nas últimas ${SEQUENTIAL_SPENDING_WINDOW_HOURS} horas, você registrou **${formatBRL(recentTotal)}** em **${recentExpenses.length} gastos**.${percentageText}${limitText}\n\nVale dar uma respirada antes do próximo gasto para manter o orçamento sob controle.`;
 }
 
 function formatSummary(month: string) {
@@ -986,7 +1083,7 @@ function formatExpenseConfirmation(expense: Expense, month: string, isFuture = f
           ? `\n\nAtenção: você já usou **${s.limitUsedPercent}%** do seu limite. Ainda restam **${formatBRL(Math.max(0, s.limitRemaining ?? 0))}**.`
           : `\n\nVocê usou **${s.limitUsedPercent}%** do limite e ainda tem **${formatBRL(Math.max(0, s.limitRemaining ?? 0))}** para gastar dentro do teto definido.`;
 
-  return `Pronto, registrei a despesa de **${formatBRL(expense.amount)}** em ${expense.category} para **${monthLabel(month)}**.\n\nTotal gasto no período: **${formatBRL(s.spent)}**. Saldo disponível: **${formatBRL(s.balance)}**.${limitText}`;
+  return `Pronto, registrei a despesa de **${formatBRL(expense.amount)}** em ${expense.category} para **${monthLabel(month)}**.\n\nTotal gasto no período: **${formatBRL(s.spent)}**. Saldo disponível: **${formatBRL(s.balance)}**.${limitText}${buildSequentialSpendingAlert([expense])}`;
 }
 
 function formatRevenueConfirmation(revenue: Revenue, month: string) {
@@ -1084,6 +1181,113 @@ function answerSpendingLimit(month: string) {
   return `Seu limite de gastos em ${monthLabel(month)} é **${formatBRL(s.spendingLimit)}**.\n\n${statusText} Total gasto: **${formatBRL(s.spent)}**. Ainda disponível dentro do limite: **${formatBRL(Math.max(0, s.limitRemaining ?? 0))}**.`;
 }
 
+function answerDailySummary() {
+  const state = getFinanceState();
+  const today = localISODate();
+  const month = monthKey(today);
+  const expenses = state.expenses.filter((expense) => expense.date === today);
+  const revenues = state.revenues.filter((revenue) => revenue.date === today);
+  const fixedExpenses = fixedExpenseOccurrencesForMonth(
+    state.fixedExpenses,
+    month,
+    state.deletedFixedExpenseOccurrences,
+    state.fixedExpenseOccurrenceOverrides,
+  ).filter((expense) => expense.date === today);
+  const automaticIncome = recurringIncomeOccurrencesForMonth(
+    state.income,
+    state.incomeOverrides,
+    month,
+  ).filter((income) => income.date === today);
+  const spent = [...expenses, ...fixedExpenses].reduce((sum, expense) => sum + expense.amount, 0);
+  const income = [...revenues, ...automaticIncome].reduce(
+    (sum, revenue) => sum + revenue.amount,
+    0,
+  );
+  const s = summarize(state, month);
+  const balanceText = `Saldo disponível acumulado: **${formatBRL(s.balance)}**.`;
+
+  if (!spent && !income) {
+    return `Hoje ainda não encontrei movimentações registradas.\n\n${balanceText}`;
+  }
+
+  const entriesText = income > 0 ? `Entradas de hoje: **${formatBRL(income)}**.` : "";
+  const expensesText = spent > 0 ? `Saídas de hoje: **${formatBRL(spent)}**.` : "";
+
+  return [`Resumo de hoje:`, entriesText, expensesText, balanceText].filter(Boolean).join("\n\n");
+}
+
+function answerIdealDailySpend(month: string) {
+  const s = summarize(getFinanceState(), month);
+  const today = new Date();
+  const [year, monthIndex] = month.split("-").map(Number);
+  const daysInMonth =
+    year && monthIndex
+      ? new Date(year, monthIndex, 0).getDate()
+      : new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const currentDay = month === currentMonthKey() ? today.getDate() : daysInMonth;
+  const remainingDays = Math.max(1, daysInMonth - currentDay + 1);
+  const balanceDailyReference = Math.max(0, s.balance) / remainingDays;
+  const limitDailyReference =
+    s.spendingLimit != null ? Math.max(0, s.limitRemaining ?? 0) / remainingDays : null;
+  const ideal = Math.max(
+    0,
+    limitDailyReference != null
+      ? Math.min(balanceDailyReference, limitDailyReference)
+      : balanceDailyReference,
+  );
+  const limitText =
+    limitDailyReference != null
+      ? `\n\nTambém considerei seu limite de gastos: ainda restam **${formatBRL(Math.max(0, s.limitRemaining ?? 0))}** dentro do teto.`
+      : "\n\nComo você ainda não definiu um limite de gastos, usei seu saldo acumulado como referência.";
+
+  return `Para manter o mês equilibrado, o ideal seria gastar até cerca de **${formatBRL(ideal)} hoje**.\n\nUsei como base seu saldo disponível de **${formatBRL(s.balance)}** e os **${remainingDays} dia${remainingDays === 1 ? "" : "s"}** restantes em ${monthLabel(month)}.${limitText}`;
+}
+
+function isBalanceAdjustmentRequest(text: string) {
+  const hasBalanceTarget = /\bsaldo\b/.test(text);
+  const hasAdjustmentVerb =
+    /\b(ajuste|ajustar|ajusta|corrige|corrigir|corrija|sincroniza|sincronizar|atualiza|atualizar)\b/.test(
+      text,
+    );
+  const hasCurrentBalanceStatement =
+    /\b(meu\s+)?saldo\s+(atual\s+)?(e|esta|ta|ficou|deve ficar)\b/.test(text);
+  const hasTargetPreposition = /\bsaldo\b.*\b(para|pra|em)\b/.test(text);
+
+  return (
+    hasBalanceTarget && (hasAdjustmentVerb || hasCurrentBalanceStatement || hasTargetPreposition)
+  );
+}
+
+function requestBalanceAdjustment(text: string) {
+  const normalized = normalize(text);
+  const targetBalance = parseMoneyValues(text)[0] ?? null;
+  if (!targetBalance || !isBalanceAdjustmentRequest(normalized)) return null;
+
+  const month = currentMonthKey();
+  const currentBalance = summarize(getFinanceState(), month).balance;
+  const difference = Math.round((targetBalance - currentBalance) * 100) / 100;
+
+  if (Math.abs(difference) < 0.01) {
+    return `Seu saldo já está em **${formatBRL(targetBalance)}**. Não preciso criar nenhum ajuste.`;
+  }
+
+  financeActions.setPendingAction({
+    type: "balanceAdjustment",
+    targetBalance,
+    currentBalance,
+    difference,
+    month,
+    createdAt: new Date().toISOString(),
+  });
+
+  const actionText =
+    difference > 0
+      ? `criar um ajuste de entrada de **${formatBRL(difference)}**`
+      : `criar um ajuste de saída de **${formatBRL(Math.abs(difference))}**`;
+
+  return `Entendi. Seu saldo registrado hoje está em **${formatBRL(currentBalance)}** e você quer ajustar para **${formatBRL(targetBalance)}**.\n\nPara sincronizar, vou ${actionText} como **Ajuste de saldo** em **Últimos lançamentos**. Esse registro é uma correção manual, não uma despesa ou receita comum.\n\nDeseja confirmar esse ajuste? Responda **sim** para confirmar ou **não** para cancelar.`;
+}
+
 function registerRevenue(text: string, amount: number, month: string) {
   const revenue = financeActions.addRevenue({
     amount,
@@ -1124,6 +1328,7 @@ function registerMixedFinancialEntries(text: string, month: string) {
   const hasRevenue = entries.some((entry) => entry.kind === "revenue");
   const hasExpense = entries.some((entry) => entry.kind === "expense");
   if (entries.length < 2 || !hasRevenue || !hasExpense) return null;
+  const registeredExpenses: Expense[] = [];
 
   const expenseEntries = entries.filter(
     (entry): entry is Extract<ParsedMixedEntry, { kind: "expense" }> => entry.kind === "expense",
@@ -1155,6 +1360,7 @@ function registerMixedFinancialEntries(text: string, month: string) {
     }
 
     const expense = registerExpenseForEntry(entry, month);
+    registeredExpenses.push(expense);
 
     return {
       kind: entry.kind,
@@ -1174,6 +1380,7 @@ function registerMixedFinancialEntries(text: string, month: string) {
     (entry) => entry.kind === "expense" && monthKey(entry.date) > monthKey(localISODate()),
   );
   const s = summarize(getFinanceState(), month);
+  const sequentialAlert = buildSequentialSpendingAlert(registeredExpenses);
 
   return [
     `Pronto, registrei **${movements.length} movimentações** separando entradas e saídas:`,
@@ -1184,6 +1391,7 @@ function registerMixedFinancialEntries(text: string, month: string) {
     futureExpense
       ? "As despesas futuras ficaram em **Lançamentos futuros** no Dashboard e ainda não foram debitadas do saldo atual."
       : `Saldo disponível acumulado: **${formatBRL(s.balance)}**.`,
+    sequentialAlert,
   ].join("\n");
 }
 
@@ -1251,6 +1459,8 @@ function registerMultipleExpenses(text: string, month: string) {
   const months = Array.from(new Set(expenses.map((expense) => monthKey(expense.date)))).sort();
   const summaryMonth = months.length === 1 ? months[0] : month;
   const s = summarize(getFinanceState(), summaryMonth);
+  const hasFutureExpense = months.some((entryMonth) => entryMonth > monthKey(localISODate()));
+  const sequentialAlert = buildSequentialSpendingAlert(expenses);
   const limitText =
     s.spendingLimit == null
       ? ""
@@ -1267,9 +1477,10 @@ function registerMultipleExpenses(text: string, month: string) {
       (expense) => `- ${expenseLine(expense)} (${monthLabel(monthKey(expense.date))})`,
     ),
     "",
-    months.some((entryMonth) => entryMonth > monthKey(localISODate()))
+    hasFutureExpense
       ? `Lançamentos futuros não foram descontados do saldo atual. Eles entram nas projeções e passam a impactar o saldo quando a competência correspondente chegar.`
       : `Total gasto no período: **${formatBRL(s.spent)}**. Saldo disponível: **${formatBRL(s.balance)}**.${limitText}`,
+    sequentialAlert,
   ].join("\n");
 }
 
@@ -1363,6 +1574,25 @@ function answerPendingAction(text: string, month: string) {
       pending.month,
       pending.month > monthKey(localISODate()),
     );
+  }
+
+  if (pending.type === "balanceAdjustment") {
+    if (isDenial(text)) {
+      financeActions.setPendingAction(null);
+      return "Tudo certo, não fiz nenhum ajuste no saldo.";
+    }
+
+    if (!isConfirmation(text)) return null;
+
+    financeActions.addBalanceAdjustment(pending.difference);
+    financeActions.setPendingAction(null);
+    const s = summarize(getFinanceState(), pending.month);
+    const actionText =
+      pending.difference > 0
+        ? `somei **${formatBRL(pending.difference)}**`
+        : `reduzi **${formatBRL(Math.abs(pending.difference))}**`;
+
+    return `Pronto, criei o lançamento **Ajuste de saldo** e ${actionText} para sincronizar seu saldo.\n\nEle aparece em **Últimos lançamentos** como uma correção manual, sem entrar como gasto do mês ou receita extra.\n\nSaldo disponível atualizado: **${formatBRL(s.balance)}**.`;
   }
 
   const expense = state.expenses.find((item) => item.id === pending.expenseId);
@@ -1474,23 +1704,30 @@ function isWeeklyPaymentReference(text: string) {
   return /\bsemana\b/.test(text);
 }
 
-function paymentProjectionIntent(text: string, recentText: string) {
+function hasPaymentMomentReference(text: string) {
   return (
-    includesAny(text, PAYMENT_PROJECTION_WORDS) ||
-    (includesAny(recentText, PAYMENT_PROJECTION_WORDS) &&
-      includesAny(text, [
-        "primeiro",
-        "segundo",
-        "terceiro",
-        "quarto",
-        "quinto",
-        "ultimo",
-        "último",
-        "semana",
-        "inicio",
-        "comeco",
-      ]))
+    includesAny(text, PAYMENT_PROJECTION_WORDS) || /\bdia\s+(0?[1-9]|[12]\d|3[01])\b/.test(text)
   );
+}
+
+function paymentProjectionIntent(text: string, recentText: string) {
+  const directReference = hasPaymentMomentReference(text);
+  const contextualReference =
+    hasPaymentMomentReference(recentText) &&
+    includesAny(text, [
+      "primeiro",
+      "segundo",
+      "terceiro",
+      "quarto",
+      "quinto",
+      "ultimo",
+      "último",
+      "semana",
+      "inicio",
+      "comeco",
+    ]);
+
+  return directReference || contextualReference;
 }
 
 function paymentDateLabel(date: string) {
@@ -1733,7 +1970,7 @@ function answerSpecificFutureMonthProjection(text: string) {
     return `Você quer uma projeção para **${target.label}**?\n\nComo esse mês já passou neste ano, me diga o ano desejado para eu calcular com segurança.`;
   }
 
-  if (target.month <= currentMonth) return null;
+  if (target.month < currentMonth) return null;
 
   const forecast = forecastFutureMonth(getFinanceState(), target.month);
   const incomeText =
@@ -1762,6 +1999,178 @@ function answerSpecificFutureMonthProjection(text: string) {
   return `Projetando até o fim de **${monthLabel(forecast.targetMonth)}**, a estimativa é você ficar com **${formatBRL(forecast.projectedBalance)}**.\n\nComo cheguei nesse valor:\n- Saldo acumulado atual: **${formatBRL(forecast.currentBalance)}**\n- Entradas previstas até lá: **${incomeText}**\n- Saídas previstas até lá: **${expenseText}**\n\nCálculo: ${formatBRL(forecast.currentBalance)} + ${formatBRL(forecast.projectedIncome)} - ${formatBRL(forecast.projectedExpenses)} = **${formatBRL(forecast.projectedBalance)}**.${detailsText}\n\nEssa é uma projeção: novos gastos, receitas ou ajustes podem mudar esse valor.`;
 }
 
+function isoDateFromLocalDate(date: Date) {
+  return localISODate(date);
+}
+
+function localDateFromISO(iso: string) {
+  return new Date(`${iso}T12:00:00`);
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function startOfWeek(date: Date) {
+  const start = new Date(date);
+  const mondayOffset = (start.getDay() + 6) % 7;
+  start.setDate(start.getDate() - mondayOffset);
+  return start;
+}
+
+function monthStartISO(targetMonth: string) {
+  return `${targetMonth}-01`;
+}
+
+function monthEndISOForAssistant(targetMonth: string) {
+  const [year, monthIndex] = targetMonth.split("-").map(Number);
+  return isoDateFromLocalDate(new Date(year, monthIndex, 0));
+}
+
+function parseMonthForSpendingQuery(text: string) {
+  const normalized = normalize(text);
+  const pattern = monthAliasPattern();
+  const match = normalized.match(new RegExp(`\\b(${pattern})\\b(?:\\s+(?:de\\s+)?(20\\d{2}))?`));
+  if (!match) return null;
+
+  const alias = match[1];
+  const monthIndex = MONTH_ALIASES.find((month) =>
+    month.names.some((name) => normalize(name) === alias),
+  )?.index;
+  if (!monthIndex) return null;
+
+  const todayMonth = monthKey(localISODate());
+  const [currentYear] = todayMonth.split("-").map(Number);
+  const year = match[2] ? Number(match[2]) : currentYear;
+  const targetMonth = monthKeyFromParts(year, monthIndex);
+
+  return {
+    month: targetMonth,
+    label: monthLabel(targetMonth),
+    explicitYear: Boolean(match[2]),
+  };
+}
+
+function isSpendingQuery(text: string) {
+  if (includesAny(text, ["quanto posso gastar", "quanto da para gastar", "quanto ainda posso"])) {
+    return false;
+  }
+
+  return (
+    /\bquanto\b.*\b(gastei|gasto|gastos|despesas)\b/.test(text) ||
+    /\b(total|valor)\b.*\b(gasto|gastos|despesas)\b/.test(text)
+  );
+}
+
+function spendingPeriodFromText(text: string): {
+  start: string;
+  end: string;
+  label: string;
+  future?: boolean;
+} | null {
+  const normalized = normalize(text);
+  const todayISO = localISODate();
+  const today = localDateFromISO(todayISO);
+  const currentMonth = monthKey(todayISO);
+
+  if (/\b(ultimos|ultimas)\s+7\s+dias\b/.test(normalized)) {
+    return {
+      start: isoDateFromLocalDate(addDays(today, -6)),
+      end: todayISO,
+      label: "nos últimos 7 dias",
+    };
+  }
+
+  if (includesAny(normalized, ["semana passada", "ultima semana", "última semana"])) {
+    const currentWeekStart = startOfWeek(today);
+    const previousWeekStart = addDays(currentWeekStart, -7);
+    const previousWeekEnd = addDays(currentWeekStart, -1);
+    return {
+      start: isoDateFromLocalDate(previousWeekStart),
+      end: isoDateFromLocalDate(previousWeekEnd),
+      label: "na semana passada",
+    };
+  }
+
+  if (includesAny(normalized, ["esta semana", "essa semana", "semana atual"])) {
+    return {
+      start: isoDateFromLocalDate(startOfWeek(today)),
+      end: todayISO,
+      label: "esta semana",
+    };
+  }
+
+  if (includesAny(normalized, ["mes passado", "mês passado"])) {
+    const previousMonth = offsetMonthKey(currentMonth, -1);
+    return {
+      start: monthStartISO(previousMonth),
+      end: monthEndISOForAssistant(previousMonth),
+      label: `em ${monthLabel(previousMonth)}`,
+    };
+  }
+
+  const target = parseMonthForSpendingQuery(text);
+  if (target) {
+    const end = target.month === currentMonth ? todayISO : monthEndISOForAssistant(target.month);
+    return {
+      start: monthStartISO(target.month),
+      end,
+      label: `em ${target.label}`,
+      future: target.month > currentMonth,
+    };
+  }
+
+  if (includesAny(normalized, ["este mes", "esse mes", "mes atual", "este mês", "esse mês"])) {
+    return {
+      start: monthStartISO(currentMonth),
+      end: todayISO,
+      label: `em ${monthLabel(currentMonth)}`,
+    };
+  }
+
+  return null;
+}
+
+function answerSpendingQuery(text: string) {
+  const normalized = normalize(text);
+  if (!isSpendingQuery(normalized)) return null;
+
+  const period = spendingPeriodFromText(text);
+  if (!period) return null;
+
+  if (period.future) {
+    return `Essa competência ainda não chegou, então não há gastos realizados para consultar ${period.label}.\n\nSe quiser, posso fazer uma **projeção** para esse mês considerando renda automática, despesas fixas e lançamentos futuros.`;
+  }
+
+  const state = getFinanceState();
+  const expenses = state.expenses.filter(
+    (expense) => expense.date >= period.start && expense.date <= period.end,
+  );
+  const months = Array.from(new Set([monthKey(period.start), monthKey(period.end)]));
+  const fixedExpenses = months
+    .flatMap((entryMonth) =>
+      fixedExpenseOccurrencesForMonth(
+        state.fixedExpenses,
+        entryMonth,
+        state.deletedFixedExpenseOccurrences,
+        state.fixedExpenseOccurrenceOverrides,
+      ),
+    )
+    .filter((expense) => expense.date >= period.start && expense.date <= period.end);
+  const manualTotal = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const fixedTotal = fixedExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const total = manualTotal + fixedTotal;
+  const count = expenses.length + fixedExpenses.length;
+  const detail =
+    fixedTotal > 0
+      ? `\n\nDetalhes: ${formatBRL(manualTotal)} em lançamentos registrados e ${formatBRL(fixedTotal)} em despesas fixas debitadas.`
+      : "";
+
+  return `Você gastou **${formatBRL(total)}** ${period.label}.\n\nForam considerados **${count} lançamento${count === 1 ? "" : "s"}** já registrado${count === 1 ? "" : "s"} no histórico financeiro.${detail}`;
+}
+
 function answerSpendingUntilNextMonth(month: string) {
   const state = getFinanceState();
   const current = summarize(state, month);
@@ -1772,18 +2181,51 @@ function answerSpendingUntilNextMonth(month: string) {
   return `Você pode gastar até **${formatBRL(Math.max(0, current.balance))}** sem deixar seu saldo acumulado negativo.\n\nSe não gastar mais nada, a projeção para ${monthLabel(forecast.nextMonth)} fica em **${formatBRL(forecast.projectedAvailable)}**.\n\nSe gastar todo o saldo disponível, você começaria ${monthLabel(forecast.nextMonth)} com cerca de **${formatBRL(ifSpendAllCurrentBalance)}**, considerando a renda recorrente, receitas extras, despesas já registradas e despesas fixas previstas para o próximo mês.`;
 }
 
+function isImpactSimulationRequest(text: string) {
+  const hasConditionalIntent = /\b(e\s+se|se\s+eu)\b/.test(text);
+  const hasSimulationIntent = /\b(simula|simule|simular|simulacao)\b/.test(text);
+  const hasDecisionIntent = /\b(posso|consigo|da para|vale a pena)\b/.test(text);
+  const hasPurchaseIntent =
+    /\b(comprar|compra|gastar|gasto|pagar|pagamento|adquirir|item|produto)\b/.test(text);
+
+  return hasPurchaseIntent && (hasConditionalIntent || hasSimulationIntent || hasDecisionIntent);
+}
+
 function simulateSpend(text: string, month: string) {
   const amount = parseMoney(text);
   if (!amount) return null;
 
   const s = summarize(getFinanceState(), month);
   const after = s.balance - amount;
-  const verdict =
+  const balanceVerdict =
     after >= 0
-      ? `Sim. Depois desse gasto, ainda sobrariam **${formatBRL(after)}**.`
-      : `Do jeito que está, esse gasto deixaria o saldo em **${formatBRL(after)}**.`;
+      ? `Depois dessa compra, seu saldo ficaria em **${formatBRL(after)}**.`
+      : `Essa compra deixaria seu saldo em **${formatBRL(after)}**, ou seja, abaixo de zero.`;
 
-  return `${verdict}\n\nHoje seu saldo disponível acumulado é **${formatBRL(s.balance)}**.`;
+  if (!s.spendingLimit) {
+    return `Simulei esse gasto sem registrar nada no histórico.\n\nValor da compra: **${formatBRL(amount)}**\nSaldo atual: **${formatBRL(s.balance)}**\nSaldo após a compra: **${formatBRL(after)}**\n\n${after >= 0 ? "Pelo saldo disponível, ela cabe no momento." : "Pelo saldo disponível, eu não recomendaria agora."}\n\nVocê ainda não definiu um limite de gastos. Se quiser uma análise mais precisa do orçamento do período, cadastre um limite em **Ajustes**.`;
+  }
+
+  const projectedSpent = s.spent + amount;
+  const projectedLimitRemaining = s.spendingLimit - projectedSpent;
+  const projectedLimitPercent = Math.round((projectedSpent / s.spendingLimit) * 100);
+  const limitVerdict =
+    projectedLimitRemaining < 0
+      ? `Ela ultrapassaria seu limite de gastos em **${formatBRL(Math.abs(projectedLimitRemaining))}**.`
+      : projectedLimitPercent >= 90
+        ? `Ela ainda cabe no limite, mas deixaria você perto do teto: **${projectedLimitPercent}%** usado.`
+        : `Ela cabe no seu limite. Depois da compra, ainda restariam **${formatBRL(projectedLimitRemaining)}** dentro do teto.`;
+
+  const recommendation =
+    after < 0
+      ? "Eu evitaria essa compra agora, porque ela deixaria seu saldo negativo."
+      : projectedLimitRemaining < 0
+        ? "Eu teria cautela: seu saldo ainda pode comportar, mas o limite do período seria ultrapassado."
+        : projectedLimitPercent >= 90
+          ? "Dá para fazer, mas vale pensar com calma porque ela deixaria pouca margem no orçamento."
+          : "A simulação parece confortável dentro do saldo e do limite atual.";
+
+  return `Simulei esse gasto sem registrar nada no histórico.\n\nValor da compra: **${formatBRL(amount)}**\nSaldo atual: **${formatBRL(s.balance)}**\n${balanceVerdict}\n\nLimite do período: **${formatBRL(s.spendingLimit)}**\nGasto atual no período: **${formatBRL(s.spent)}**\nGasto projetado: **${formatBRL(projectedSpent)}** (${projectedLimitPercent}% do limite)\n\n${limitVerdict}\n\n${recommendation}`;
 }
 
 function listRecent() {
@@ -1800,7 +2242,7 @@ function listRecent() {
     "Últimos lançamentos dos últimos 38 dias:",
     ...expenses.map(
       (expense) =>
-        `- ${formatBRL(expense.amount)} em ${expense.category}: ${expense.description} (${new Date(`${expense.date}T12:00:00`).toLocaleDateString("pt-BR")})`,
+        `- ${expenseLine(expense)} (${new Date(`${expense.date}T12:00:00`).toLocaleDateString("pt-BR")})`,
     ),
   ].join("\n");
 }
@@ -1840,6 +2282,31 @@ export function answerLocally(
     return { text: answerSavingsGoalHelp() };
   }
 
+  if (
+    includesAny(normalized, [
+      "resumo do dia",
+      "resumo de hoje",
+      "como foi meu dia",
+      "como esta meu dia",
+      "como está meu dia",
+      "movimentacoes de hoje",
+      "movimentações de hoje",
+    ])
+  ) {
+    return { text: answerDailySummary() };
+  }
+
+  if (
+    includesAny(normalized, [
+      "ideal para gastar hoje",
+      "quanto seria o ideal para gastar hoje",
+      "quanto devo gastar hoje",
+      "quanto posso gastar hoje",
+    ])
+  ) {
+    return { text: answerIdealDailySpend(month) };
+  }
+
   if (includesAny(normalized, FIXED_EXPENSE_WORDS)) {
     if (isFixedExpenseListRequest(normalized)) {
       return { text: listFixedExpenses(month) };
@@ -1865,6 +2332,16 @@ export function answerLocally(
 
   if (includesAny(normalized, REMOVE_WORDS)) {
     return { text: removeExpense(text, month) };
+  }
+
+  const balanceAdjustment = requestBalanceAdjustment(text);
+  if (balanceAdjustment) {
+    return { text: balanceAdjustment };
+  }
+
+  const spendingQuery = answerSpendingQuery(text);
+  if (spendingQuery) {
+    return { text: spendingQuery };
   }
 
   const paymentProjection = answerPaymentProjection(text, recentText);
@@ -1913,6 +2390,7 @@ export function answerLocally(
   }
 
   if (
+    isImpactSimulationRequest(normalized) ||
     normalized.includes("consigo") ||
     normalized.includes("posso") ||
     normalized.includes("da para") ||
@@ -1935,6 +2413,8 @@ export function answerLocally(
   if (
     normalized.includes("resumo") ||
     normalized.includes("como esta") ||
+    normalized.includes("como foi meu mes") ||
+    normalized.includes("como foi o meu mes") ||
     normalized.includes("mes") ||
     normalized.includes("panorama")
   ) {
