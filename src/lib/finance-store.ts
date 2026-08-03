@@ -60,6 +60,15 @@ export type FinancialGoal = {
   createdAt: string;
 };
 
+export type CategoryLearningRule = {
+  id: string;
+  term: string;
+  category: string;
+  uses: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type FixedExpense = {
   id: string;
   description: string;
@@ -143,6 +152,7 @@ export type FinanceState = {
   revenues: Revenue[];
   incomeOverrides: IncomeOverride[];
   goals: FinancialGoal[];
+  categoryLearning: CategoryLearningRule[];
   messages: UIMessage[];
   messagesByMonth: Record<string, UIMessage[]>;
 };
@@ -177,6 +187,7 @@ const initialState: FinanceState = {
   revenues: [],
   incomeOverrides: [],
   goals: [],
+  categoryLearning: [],
   messages: [],
   messagesByMonth: {},
 };
@@ -191,6 +202,63 @@ const normalizeText = (value: string) =>
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+
+const CATEGORY_LEARNING_STOPWORDS = new Set([
+  "a",
+  "ao",
+  "aos",
+  "as",
+  "com",
+  "compra",
+  "compras",
+  "comprei",
+  "da",
+  "das",
+  "de",
+  "despesa",
+  "do",
+  "dos",
+  "em",
+  "eu",
+  "gastei",
+  "gasto",
+  "gastos",
+  "lance",
+  "lancar",
+  "lançar",
+  "na",
+  "nas",
+  "no",
+  "nos",
+  "o",
+  "os",
+  "paguei",
+  "para",
+  "pra",
+  "real",
+  "reais",
+  "r",
+  "rs",
+]);
+
+function categoryLearningTerms(description: string) {
+  const normalized = normalizeText(description)
+    .replace(/r\$/g, " ")
+    .replace(/[0-9]+(?:[,.][0-9]+)?/g, " ")
+    .replace(/[^a-z0-9\s]/g, " ");
+
+  return Array.from(
+    new Set(
+      normalized
+        .split(/\s+/)
+        .map((term) => term.trim())
+        .filter(
+          (term) =>
+            term.length >= 3 && !CATEGORY_LEARNING_STOPWORDS.has(term) && !/^\d+$/.test(term),
+        ),
+    ),
+  ).slice(0, 6);
+}
 
 const normalizeMoney = (value: number | undefined) =>
   Math.round(Math.abs(Number(value) || 0) * 100) / 100;
@@ -251,6 +319,7 @@ function rawImportedState(input: unknown): Partial<FinanceState> {
     "revenues",
     "incomeOverrides",
     "goals",
+    "categoryLearning",
     "messages",
   ] as const) {
     if (key in candidate && !Array.isArray(candidate[key])) {
@@ -373,6 +442,19 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
     targetAmount: normalizeMoney(goal.targetAmount),
     createdAt: goal.createdAt || new Date().toISOString(),
   }));
+  const categoryLearning = (parsed.categoryLearning ?? [])
+    .filter((rule) => rule.term && rule.category)
+    .map((rule) => ({
+      id: rule.id || uid(),
+      term: normalizeText(rule.term).trim().slice(0, 50),
+      category: normalizeCategory(rule.category).slice(0, 40),
+      uses: Math.max(1, Math.trunc(Number(rule.uses) || 1)),
+      createdAt: rule.createdAt || new Date().toISOString(),
+      updatedAt: rule.updatedAt || rule.createdAt || new Date().toISOString(),
+    }))
+    .filter(
+      (rule) => rule.term.length >= 3 && (CATEGORIES as readonly string[]).includes(rule.category),
+    );
   const income = parsed.income
     ? {
         ...parsed.income,
@@ -416,6 +498,7 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
     revenues,
     incomeOverrides,
     goals,
+    categoryLearning,
     messages: parsed.messages ?? [],
     messagesByMonth,
   };
@@ -712,6 +795,48 @@ export const financeActions = {
     };
     write({ ...s, expenses: [...s.expenses, expense] });
     return expense;
+  },
+  learnExpenseCategory(description: string, category: string) {
+    const normalizedCategory = normalizeCategory(category).trim();
+    if (!(CATEGORIES as readonly string[]).includes(normalizedCategory)) return;
+    if (["Geral", "Ajuste de saldo", "Meta"].includes(normalizedCategory)) return;
+
+    const terms = categoryLearningTerms(description);
+    if (!terms.length) return;
+
+    const now = new Date().toISOString();
+    const s = getFinanceState();
+    const nextRules = [...s.categoryLearning];
+
+    terms.forEach((term) => {
+      const existingIndex = nextRules.findIndex((rule) => rule.term === term);
+      if (existingIndex >= 0) {
+        const existing = nextRules[existingIndex];
+        nextRules[existingIndex] = {
+          ...existing,
+          category: normalizedCategory,
+          uses: existing.category === normalizedCategory ? existing.uses + 1 : 1,
+          updatedAt: now,
+        };
+        return;
+      }
+
+      nextRules.push({
+        id: uid(),
+        term,
+        category: normalizedCategory,
+        uses: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+    });
+
+    write({
+      ...s,
+      categoryLearning: nextRules
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, 160),
+    });
   },
   updateExpense(id: string, patch: Partial<Omit<Expense, "id" | "createdAt">>) {
     const s = getFinanceState();
@@ -1550,6 +1675,20 @@ export function goalsWithProgress(state: FinanceState) {
   return state.goals
     .map((goal) => goalProgress(state, goal))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export function categoryFromLearning(state: FinanceState, description: string) {
+  const terms = categoryLearningTerms(description);
+  if (!terms.length || !state.categoryLearning.length) return null;
+
+  const candidates = state.categoryLearning
+    .filter((rule) => terms.includes(rule.term))
+    .sort((a, b) => {
+      if (a.uses !== b.uses) return b.uses - a.uses;
+      return b.updatedAt.localeCompare(a.updatedAt);
+    });
+
+  return candidates[0]?.category ?? null;
 }
 
 export function lastMonths(state: FinanceState, n = 6) {

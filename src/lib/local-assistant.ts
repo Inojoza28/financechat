@@ -1,5 +1,6 @@
 ﻿import {
   cashBalanceUntil,
+  categoryFromLearning,
   currentMonthKey,
   financeActions,
   fixedExpenseOccurrencesForMonth,
@@ -767,6 +768,9 @@ function isVagueFollowUpAboutBalance(text: string) {
 
 function inferCategory(text: string) {
   const normalized = normalize(text);
+  const learnedCategory = categoryFromLearning(getFinanceState(), text);
+  if (learnedCategory) return learnedCategory;
+
   for (const [category, hints] of Object.entries(CATEGORY_HINTS)) {
     if (hints.some((hint) => normalized.includes(hint))) return category;
   }

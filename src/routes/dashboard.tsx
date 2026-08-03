@@ -604,6 +604,11 @@ function DashboardContent({ state }: { state: FinanceState }) {
     }
 
     if (selectedExpense) {
+      const shouldLearnCategory =
+        !selectedExpenseIsBalanceAdjustment &&
+        !selectedExpenseIsGoalContribution &&
+        editCategory !== selectedExpense.category;
+
       financeActions.updateExpense(selectedExpense.id, {
         description,
         amount: amountToStore,
@@ -621,6 +626,10 @@ function DashboardContent({ state }: { state: FinanceState }) {
             ? "Aporte atualizado."
             : "Despesa atualizada.",
       );
+
+      if (shouldLearnCategory) {
+        financeActions.learnExpenseCategory(description, editCategory);
+      }
     } else {
       financeActions.addExpense({
         description,
