@@ -2419,8 +2419,8 @@ function DashboardContent({ state }: { state: FinanceState }) {
                       />
                     </div>
 
-                    <div className="grid gap-2.5 sm:grid-cols-2">
-                      <div>
+                    <div className="grid min-w-0 gap-2.5 sm:grid-cols-2">
+                      <div className="min-w-0">
                         <Label htmlFor="fixed-amount" className="text-[13px]">
                           Valor
                         </Label>
@@ -2430,10 +2430,10 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           value={fixedAmount}
                           onChange={(event) => setFixedAmount(event.target.value)}
                           placeholder="120,00"
-                          className="mt-1.5 h-9 rounded-xl"
+                          className="mt-1.5 h-9 w-full min-w-0 rounded-xl"
                         />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <Label htmlFor="fixed-payday" className="text-[13px]">
                           Dia de vencimento
                         </Label>
@@ -2444,13 +2444,13 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           max={31}
                           value={fixedPayday}
                           onChange={(event) => setFixedPayday(event.target.value)}
-                          className="mt-1.5 h-9 rounded-xl"
+                          className="mt-1.5 h-9 w-full min-w-0 rounded-xl"
                         />
                       </div>
                     </div>
 
-                    <div className="grid gap-2.5 sm:grid-cols-2">
-                      <div>
+                    <div className="grid min-w-0 gap-2.5 sm:grid-cols-2">
+                      <div className="min-w-0">
                         <Label htmlFor="fixed-category" className="text-[13px]">
                           Categoria
                         </Label>
@@ -2458,7 +2458,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           id="fixed-category"
                           value={fixedCategory}
                           onChange={(event) => setFixedCategory(event.target.value)}
-                          className="mt-1.5 h-9 w-full rounded-xl border border-input bg-background px-3 text-[14px] outline-none transition-colors focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring/20"
+                          className="mt-1.5 h-9 w-full min-w-0 rounded-xl border border-input bg-background px-3 text-[14px] outline-none transition-colors focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring/20"
                         >
                           {CATEGORIES.map((category) => (
                             <option key={category} value={category}>
@@ -2467,7 +2467,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           ))}
                         </select>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <Label htmlFor="fixed-starts-at" className="text-[13px]">
                           A partir de
                         </Label>
@@ -2476,15 +2476,15 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           type="month"
                           value={fixedStartsAtMonth}
                           onChange={(event) => setFixedStartsAtMonth(event.target.value)}
-                          className="mt-1.5 h-9 rounded-xl"
+                          className="mt-1.5 h-9 w-full min-w-0 rounded-xl"
                         />
                       </div>
                     </div>
                   </>
                 ) : (
                   <>
-                    <div className="grid gap-2.5 sm:grid-cols-[1.15fr_0.85fr]">
-                      <div>
+                    <div className="grid min-w-0 gap-2.5 sm:grid-cols-[1.15fr_0.85fr]">
+                      <div className="min-w-0">
                         <Label htmlFor="fixed-description" className="text-[13px]">
                           Nome da compra
                         </Label>
@@ -2493,10 +2493,10 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           value={fixedDescription}
                           onChange={(event) => setFixedDescription(event.target.value)}
                           placeholder="Notebook, celular, compra..."
-                          className="mt-1.5 h-9 rounded-xl"
+                          className="mt-1.5 h-9 w-full min-w-0 rounded-xl"
                         />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <Label htmlFor="fixed-category" className="text-[13px]">
                           Categoria
                         </Label>
@@ -2504,7 +2504,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           id="fixed-category"
                           value={fixedCategory}
                           onChange={(event) => setFixedCategory(event.target.value)}
-                          className="mt-1.5 h-9 w-full rounded-xl border border-input bg-background px-3 text-[14px] outline-none transition-colors focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring/20"
+                          className="mt-1.5 h-9 w-full min-w-0 rounded-xl border border-input bg-background px-3 text-[14px] outline-none transition-colors focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring/20"
                         >
                           {CATEGORIES.map((category) => (
                             <option key={category} value={category}>
@@ -2515,8 +2515,8 @@ function DashboardContent({ state }: { state: FinanceState }) {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2 rounded-2xl border border-border/55 bg-secondary/20 p-2.5 sm:grid-cols-4">
-                      <div>
+                    <div className="grid min-w-0 grid-cols-2 gap-2 rounded-2xl border border-border/55 bg-secondary/20 p-2.5 sm:grid-cols-4">
+                      <div className="min-w-0">
                         <Label htmlFor="fixed-total-amount" className="text-[12.5px]">
                           Total
                         </Label>
@@ -2529,10 +2529,10 @@ function DashboardContent({ state }: { state: FinanceState }) {
                             setFixedInstallmentAmountEdited(false);
                           }}
                           placeholder="1.200"
-                          className="mt-1 h-8 rounded-xl px-2 text-[13px]"
+                          className="mt-1 h-8 w-full min-w-0 rounded-xl px-2 text-[13px]"
                         />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <Label htmlFor="fixed-installment-amount" className="text-[12.5px]">
                           Parcela
                         </Label>
@@ -2545,10 +2545,10 @@ function DashboardContent({ state }: { state: FinanceState }) {
                             setFixedInstallmentAmountEdited(true);
                           }}
                           placeholder="100"
-                          className="mt-1 h-8 rounded-xl px-2 text-[13px]"
+                          className="mt-1 h-8 w-full min-w-0 rounded-xl px-2 text-[13px]"
                         />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <Label htmlFor="fixed-installments" className="text-[12.5px]">
                           Qtd.
                         </Label>
@@ -2562,10 +2562,10 @@ function DashboardContent({ state }: { state: FinanceState }) {
                             setFixedInstallments(event.target.value);
                             setFixedInstallmentAmountEdited(false);
                           }}
-                          className="mt-1 h-8 rounded-xl px-2 text-[13px]"
+                          className="mt-1 h-8 w-full min-w-0 rounded-xl px-2 text-[13px]"
                         />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <Label htmlFor="fixed-current-installment" className="text-[12.5px]">
                           Atual
                         </Label>
@@ -2576,13 +2576,13 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           max={Math.max(1, Number(fixedInstallments) || 1)}
                           value={fixedCurrentInstallment}
                           onChange={(event) => setFixedCurrentInstallment(event.target.value)}
-                          className="mt-1 h-8 rounded-xl px-2 text-[13px]"
+                          className="mt-1 h-8 w-full min-w-0 rounded-xl px-2 text-[13px]"
                         />
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2.5">
-                      <div>
+                    <div className="grid min-w-0 gap-2.5 sm:grid-cols-2">
+                      <div className="min-w-0">
                         <Label htmlFor="fixed-payday" className="text-[13px]">
                           Vencimento
                         </Label>
@@ -2593,10 +2593,10 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           max={31}
                           value={fixedPayday}
                           onChange={(event) => setFixedPayday(event.target.value)}
-                          className="mt-1.5 h-9 rounded-xl"
+                          className="mt-1.5 h-9 w-full min-w-0 rounded-xl"
                         />
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <Label htmlFor="fixed-starts-at" className="text-[13px]">
                           A partir de
                         </Label>
@@ -2605,7 +2605,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           type="month"
                           value={fixedStartsAtMonth}
                           onChange={(event) => setFixedStartsAtMonth(event.target.value)}
-                          className="mt-1.5 h-9 rounded-xl"
+                          className="mt-1.5 h-9 w-full min-w-0 rounded-xl"
                         />
                       </div>
                     </div>
