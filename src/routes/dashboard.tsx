@@ -142,6 +142,14 @@ function moneyToInput(value: number | null | undefined) {
   return value != null && Number.isFinite(value) ? String(value).replace(".", ",") : "";
 }
 
+function formatPercent(value: number) {
+  const normalized = Math.abs(value) < 0.005 ? 0 : value;
+
+  return `${new Intl.NumberFormat("pt-BR", {
+    maximumFractionDigits: 2,
+  }).format(normalized)}%`;
+}
+
 function Stat({
   label,
   value,
@@ -282,6 +290,9 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const [fixedStartsAtMonth, setFixedStartsAtMonth] = useState(currentMonthKey());
   const s = summarize(state, selectedMonth);
   const budgetIncome = monthlyIncome(state.income);
+  const limitUsedPercent =
+    s.spendingLimit && s.spendingLimit > 0 ? (s.spent / s.spendingLimit) * 100 : null;
+  const budgetUsedPercent = budgetIncome > 0 ? (s.spent / budgetIncome) * 100 : null;
   const months = lastMonths(state, 6);
   const monthOptions = useMemo(() => chatMonthKeys(state), [state]);
   const recentCutoff = isoDateDaysAgo(38);
@@ -947,7 +958,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
           value={s.spendingLimit ? formatBRL(s.spendingLimit) : "Não definido"}
           hint={
             s.spendingLimit
-              ? `${s.limitUsedPercent}% usado · ${formatBRL(Math.max(0, s.limitRemaining ?? 0))} livres`
+              ? `${formatPercent(limitUsedPercent ?? 0)} usado · ${formatBRL(Math.max(0, s.limitRemaining ?? 0))} livres`
               : `Sugestão: ${formatBRL(s.recommendedSpendingLimit)}`
           }
           accent={s.limitStatus === "exceeded" ? "negative" : undefined}
@@ -986,7 +997,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                     : "text-foreground"
               }`}
             >
-              {s.limitUsedPercent}%
+              {formatPercent(limitUsedPercent ?? 0)}
             </p>
           </div>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
@@ -998,25 +1009,25 @@ function DashboardContent({ state }: { state: FinanceState }) {
                     ? "bg-warning"
                     : "bg-success"
               }`}
-              style={{ width: `${Math.min(100, s.limitUsedPercent ?? 0)}%` }}
+              style={{ width: `${Math.min(100, Math.max(0, limitUsedPercent ?? 0))}%` }}
             />
           </div>
         </div>
       )}
 
-      {budgetIncome > 0 && (
+      {budgetUsedPercent != null && (
         <div className="animate-rise rounded-[18px] border border-border/55 bg-surface p-5 shadow-soft">
           <div className="flex items-baseline justify-between">
             <p className="text-[13px] font-medium text-muted-foreground">Orçamento utilizado</p>
             <p className="text-[13px] font-semibold tabular-nums">
-              {Math.round((s.spent / budgetIncome) * 100)}%
+              {formatPercent(budgetUsedPercent)}
             </p>
           </div>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
             <div
               className="h-full rounded-full transition-all duration-700"
               style={{
-                width: `${Math.min(100, (s.spent / budgetIncome) * 100)}%`,
+                width: `${Math.min(100, Math.max(0, budgetUsedPercent))}%`,
                 background: "var(--gradient-brand)",
               }}
             />
