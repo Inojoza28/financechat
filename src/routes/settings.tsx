@@ -328,7 +328,7 @@ function SettingsContent() {
       <Section
         icon={Sparkles}
         title="Sugestões inteligentes"
-        description="Permita que o Fin mostre ações rápidas apenas quando elas fizerem sentido na conversa."
+        description="Ative ou desative atalhos sugeridos pelo Fin no chat."
       >
         <div className="rounded-2xl border border-border/55 bg-background/65 p-3 shadow-[inset_0_1px_0_hsl(var(--foreground)/0.035)] dark:bg-surface-muted/35 dark:shadow-none">
           <div className="min-w-0">
@@ -336,8 +336,7 @@ function SettingsContent() {
               Mostrar sugestões inteligentes da IA
             </p>
             <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
-              Recomendações discretas aparecem dentro da conversa em momentos úteis do dia ou do
-              mês.
+              Elas aparecem abaixo da resposta do Fin em horários ou períodos importantes.
             </p>
           </div>
 
@@ -346,7 +345,7 @@ function SettingsContent() {
               {
                 enabled: true,
                 title: "Ativadas",
-                description: "Aparecem só em momentos úteis.",
+                description: "Mostra atalhos no chat.",
                 icon: Sparkles,
               },
               {
