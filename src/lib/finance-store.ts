@@ -78,6 +78,10 @@ export type FixedExpense = {
   startsAtMonth: string;
   createdAt: string;
   canceledAt?: string;
+  paymentType?: "single" | "installment";
+  totalAmount?: number;
+  installments?: number;
+  currentInstallment?: number;
 };
 
 export type FixedExpenseOccurrence = {
@@ -87,6 +91,8 @@ export type FixedExpenseOccurrence = {
   amount: number;
   category: string;
   date: string;
+  installmentLabel?: string;
+  paymentType?: "single" | "installment";
 };
 
 export type FixedExpenseOccurrenceOverride = {
@@ -273,6 +279,39 @@ const clampPayday = (value: number | undefined, fallback: number) => {
   return Number.isFinite(day) ? Math.min(31, Math.max(1, day)) : fallback;
 };
 
+const clampInstallments = (value: number | undefined, fallback: number) => {
+  const count = Math.trunc(Number(value));
+  return Number.isFinite(count) ? Math.min(360, Math.max(1, count)) : fallback;
+};
+
+const clampCurrentInstallment = (value: number | undefined, total: number) => {
+  const current = Math.trunc(Number(value));
+  return Number.isFinite(current) ? Math.min(total, Math.max(1, current)) : 1;
+};
+
+function monthsBetweenKeys(startMonth: string, month: string) {
+  const [startYear, startIndex] = startMonth.split("-").map(Number);
+  const [year, monthIndex] = month.split("-").map(Number);
+  if (!startYear || !startIndex || !year || !monthIndex) return 0;
+  return (year - startYear) * 12 + monthIndex - startIndex;
+}
+
+export function fixedExpenseInstallmentProgress(expense: FixedExpense, month = currentMonthKey()) {
+  if (expense.paymentType !== "installment") return null;
+
+  const installments = clampInstallments(expense.installments, 1);
+  const currentInstallment = clampCurrentInstallment(expense.currentInstallment, installments);
+  const installmentNumber = currentInstallment + monthsBetweenKeys(expense.startsAtMonth, month);
+
+  return {
+    current: installmentNumber,
+    total: installments,
+    label: `${Math.min(Math.max(installmentNumber, 1), installments)}/${installments}`,
+    completed: installmentNumber > installments,
+    pending: installmentNumber < 1,
+  };
+}
+
 function isValidMonthKey(value?: string) {
   return Boolean(value && /^\d{4}-\d{2}$/.test(value));
 }
@@ -384,18 +423,40 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
       adjustment: expense.adjustment || isBalanceAdjustment || undefined,
     };
   });
-  const fixedExpenses = (parsed.fixedExpenses ?? []).map((expense) => ({
-    ...expense,
-    amount: normalizeMoney(expense.amount),
-    category: normalizeCategory(expense.category),
-    payday: clampPayday(expense.payday, 1),
-    startsAtMonth: isValidMonthKey(expense.startsAtMonth)
-      ? expense.startsAtMonth
-      : monthKey(expense.createdAt?.slice(0, 10) || localISODate()),
-    description: expense.description?.trim() || "Despesa fixa",
-    createdAt: expense.createdAt || new Date().toISOString(),
-    canceledAt: expense.canceledAt || undefined,
-  }));
+  const fixedExpenses = (parsed.fixedExpenses ?? []).map((expense) => {
+    const paymentType = expense.paymentType === "installment" ? "installment" : "single";
+    const installments =
+      paymentType === "installment" ? clampInstallments(expense.installments, 1) : undefined;
+    const currentInstallment =
+      paymentType === "installment"
+        ? clampCurrentInstallment(expense.currentInstallment, installments ?? 1)
+        : undefined;
+    const totalAmount =
+      paymentType === "installment"
+        ? normalizeMoney(expense.totalAmount ?? expense.amount)
+        : undefined;
+    const amount =
+      paymentType === "installment" && installments
+        ? normalizeMoney(expense.amount || totalAmount / installments)
+        : normalizeMoney(expense.amount);
+
+    return {
+      ...expense,
+      amount,
+      category: normalizeCategory(expense.category),
+      payday: clampPayday(expense.payday, 1),
+      startsAtMonth: isValidMonthKey(expense.startsAtMonth)
+        ? expense.startsAtMonth
+        : monthKey(expense.createdAt?.slice(0, 10) || localISODate()),
+      description: expense.description?.trim() || "Despesa fixa",
+      createdAt: expense.createdAt || new Date().toISOString(),
+      canceledAt: expense.canceledAt || undefined,
+      paymentType,
+      totalAmount,
+      installments,
+      currentInstallment,
+    };
+  });
   const deletedFixedExpenseOccurrences = Array.from(
     new Set(
       (parsed.deletedFixedExpenseOccurrences ?? []).filter(
@@ -648,17 +709,38 @@ export const financeActions = {
     category?: string;
     payday: number;
     startsAtMonth?: string;
+    paymentType?: "single" | "installment";
+    totalAmount?: number;
+    installments?: number;
+    currentInstallment?: number;
   }): FixedExpense {
+    const paymentType = input.paymentType === "installment" ? "installment" : "single";
+    const installments =
+      paymentType === "installment" ? clampInstallments(input.installments, 1) : undefined;
+    const currentInstallment =
+      paymentType === "installment"
+        ? clampCurrentInstallment(input.currentInstallment ?? 1, installments ?? 1)
+        : undefined;
+    const totalAmount =
+      paymentType === "installment" ? normalizeMoney(input.totalAmount ?? input.amount) : undefined;
+    const amount =
+      paymentType === "installment" && installments
+        ? normalizeMoney(input.amount || (totalAmount ?? 0) / installments)
+        : normalizeMoney(input.amount);
     const fixedExpense: FixedExpense = {
       id: uid(),
       description: input.description.trim().slice(0, 120) || "Despesa fixa",
-      amount: normalizeMoney(input.amount),
+      amount,
       category: normalizeCategory(input.category?.trim()),
       payday: clampPayday(input.payday, 1),
       startsAtMonth: isValidMonthKey(input.startsAtMonth)
         ? input.startsAtMonth!
         : currentMonthKey(),
       createdAt: new Date().toISOString(),
+      paymentType,
+      totalAmount,
+      installments,
+      currentInstallment,
     };
     const s = getFinanceState();
     write({ ...s, fixedExpenses: [...s.fixedExpenses, fixedExpense] });
@@ -873,23 +955,53 @@ export const financeActions = {
       ...s,
       fixedExpenses: s.fixedExpenses.map((expense) =>
         expense.id === id
-          ? {
-              ...expense,
-              ...patch,
-              amount: patch.amount != null ? normalizeMoney(patch.amount) : expense.amount,
-              category:
-                patch.category != null ? normalizeCategory(patch.category) : expense.category,
-              payday:
-                patch.payday != null ? clampPayday(patch.payday, expense.payday) : expense.payday,
-              description:
-                patch.description != null
-                  ? patch.description.trim().slice(0, 120) || "Despesa fixa"
-                  : expense.description,
-              startsAtMonth:
-                patch.startsAtMonth != null && isValidMonthKey(patch.startsAtMonth)
-                  ? patch.startsAtMonth
-                  : expense.startsAtMonth,
-            }
+          ? (() => {
+              const paymentType =
+                patch.paymentType != null
+                  ? patch.paymentType === "installment"
+                    ? "installment"
+                    : "single"
+                  : expense.paymentType === "installment"
+                    ? "installment"
+                    : "single";
+              const installments =
+                paymentType === "installment"
+                  ? clampInstallments(patch.installments, expense.installments ?? 1)
+                  : undefined;
+              const currentInstallment =
+                paymentType === "installment"
+                  ? clampCurrentInstallment(
+                      patch.currentInstallment ?? expense.currentInstallment ?? 1,
+                      installments ?? expense.installments ?? 1,
+                    )
+                  : undefined;
+              const totalAmount =
+                paymentType === "installment"
+                  ? normalizeMoney(patch.totalAmount ?? expense.totalAmount ?? expense.amount)
+                  : undefined;
+
+              return {
+                ...expense,
+                ...patch,
+                amount: patch.amount != null ? normalizeMoney(patch.amount) : expense.amount,
+                category:
+                  patch.category != null ? normalizeCategory(patch.category) : expense.category,
+                payday:
+                  patch.payday != null ? clampPayday(patch.payday, expense.payday) : expense.payday,
+                description:
+                  patch.description != null
+                    ? patch.description.trim().slice(0, 120) || "Despesa fixa"
+                    : expense.description,
+                startsAtMonth:
+                  patch.startsAtMonth != null && isValidMonthKey(patch.startsAtMonth)
+                    ? patch.startsAtMonth
+                    : expense.startsAtMonth,
+                paymentType,
+                totalAmount,
+                installments,
+                currentInstallment,
+              };
+            })()
           : expense,
       ),
     });
@@ -1330,20 +1442,32 @@ export function fixedExpenseOccurrencesForMonth(
   return fixedExpenses
     .filter((expense) => month >= expense.startsAtMonth)
     .map((expense) => {
+      const progress = fixedExpenseInstallmentProgress(expense, month);
+      if (progress?.completed) return null;
+
       const date = isoFromParts(year, monthIndex, expense.payday);
       const id = `${expense.id}:${month}`;
       const override = occurrenceOverrides.find((item) => item.occurrenceId === id);
+      const installmentLabel = progress?.label;
       return {
         id,
         fixedExpenseId: expense.id,
-        description: expense.description,
+        description: installmentLabel
+          ? `${expense.description} (${installmentLabel})`
+          : expense.description,
         amount: override ? normalizeMoney(override.amount) : expense.amount,
         category: expense.category,
         date,
+        installmentLabel,
+        paymentType: expense.paymentType ?? "single",
         canceledAt: expense.canceledAt,
         deleted: override?.deleted,
       };
     })
+    .filter(
+      (expense): expense is FixedExpenseOccurrence & { canceledAt?: string; deleted?: boolean } =>
+        Boolean(expense),
+    )
     .filter((expense) => !expense.canceledAt || expense.date <= expense.canceledAt)
     .filter((expense) => !deletedOccurrenceIds.includes(expense.id))
     .filter((expense) => !expense.deleted)

@@ -10,9 +10,11 @@ import {
   XAxis,
 } from "recharts";
 import {
+  ArrowLeft,
   CalendarClock,
   Check,
   ChevronDown,
+  CreditCard,
   Eye,
   EyeOff,
   LayoutDashboard,
@@ -56,6 +58,7 @@ import {
   chatMonthKeys,
   currentMonthKey,
   financeActions,
+  fixedExpenseInstallmentProgress,
   fixedExpenseOccurrencesForMonth,
   formatBRL,
   goalsWithProgress,
@@ -265,6 +268,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
   > | null>(null);
   const [visibleLaunchCount, setVisibleLaunchCount] = useState(RECENT_LAUNCH_PAGE_SIZE);
   const [fixedExpenseModalOpen, setFixedExpenseModalOpen] = useState(false);
+  const [fixedExpenseStep, setFixedExpenseStep] = useState<"choice" | "form">("choice");
   const [selectedFixedExpense, setSelectedFixedExpense] = useState<FixedExpense | null>(null);
   const [goalModalOpen, setGoalModalOpen] = useState(false);
   const [selectedGoal, setSelectedGoal] = useState<FinancialGoal | null>(null);
@@ -291,6 +295,11 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const [fixedCategory, setFixedCategory] = useState<string>("Contas");
   const [fixedPayday, setFixedPayday] = useState("1");
   const [fixedStartsAtMonth, setFixedStartsAtMonth] = useState(currentMonthKey());
+  const [fixedPaymentType, setFixedPaymentType] = useState<"single" | "installment">("single");
+  const [fixedTotalAmount, setFixedTotalAmount] = useState("");
+  const [fixedInstallments, setFixedInstallments] = useState("2");
+  const [fixedCurrentInstallment, setFixedCurrentInstallment] = useState("1");
+  const [fixedInstallmentAmountEdited, setFixedInstallmentAmountEdited] = useState(false);
   const s = summarize(state, selectedMonth);
   const budgetIncome = monthlyIncome(state.income);
   const limitUsedPercent =
@@ -300,7 +309,11 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const monthOptions = useMemo(() => chatMonthKeys(state), [state]);
   const recentCutoff = isoDateDaysAgo(38);
   const today = localISODate();
-  const activeFixedExpenses = state.fixedExpenses.filter((expense) => !expense.canceledAt);
+  const activeFixedExpenses = state.fixedExpenses.filter(
+    (expense) =>
+      !expense.canceledAt &&
+      !fixedExpenseInstallmentProgress(expense, currentMonthKey())?.completed,
+  );
   const goals = goalsWithProgress(state);
   const visibleGoals = goalsExpanded ? goals : goals.slice(0, GOAL_CARD_LIMIT);
   const hasMoreGoals = goals.length > GOAL_CARD_LIMIT;
@@ -383,6 +396,17 @@ function DashboardContent({ state }: { state: FinanceState }) {
   useEffect(() => {
     setVisibleFutureLaunchCount(RECENT_LAUNCH_PAGE_SIZE);
   }, [futureLaunches.length]);
+
+  useEffect(() => {
+    if (fixedPaymentType !== "installment" || fixedInstallmentAmountEdited) return;
+
+    const totalAmount = moneyFromInput(fixedTotalAmount);
+    const installments = Number(fixedInstallments);
+    if (!Number.isFinite(totalAmount) || totalAmount <= 0) return;
+    if (!Number.isFinite(installments) || installments < 1) return;
+
+    setFixedAmount(moneyToInput(Number((totalAmount / Math.trunc(installments)).toFixed(2))));
+  }, [fixedPaymentType, fixedTotalAmount, fixedInstallments, fixedInstallmentAmountEdited]);
 
   const setCardValue = (key: EditableStatKey, value: string) => {
     setCardEditValues((current) => ({ ...current, [key]: value }));
@@ -657,22 +681,51 @@ function DashboardContent({ state }: { state: FinanceState }) {
     setFixedCategory("Contas");
     setFixedPayday("1");
     setFixedStartsAtMonth(selectedMonth);
+    setFixedPaymentType("single");
+    setFixedTotalAmount("");
+    setFixedInstallments("2");
+    setFixedCurrentInstallment("1");
+    setFixedInstallmentAmountEdited(false);
+    setFixedExpenseStep("choice");
     setFixedExpenseModalOpen(true);
   };
 
   const openFixedExpense = (expense: FixedExpense) => {
     setSelectedFixedExpense(expense);
     setFixedDescription(expense.description);
-    setFixedAmount(String(expense.amount).replace(".", ","));
+    setFixedAmount(moneyToInput(expense.amount));
     setFixedCategory(expense.category);
     setFixedPayday(String(expense.payday));
     setFixedStartsAtMonth(expense.startsAtMonth);
+    setFixedPaymentType(expense.paymentType === "installment" ? "installment" : "single");
+    setFixedTotalAmount(
+      moneyToInput(
+        expense.totalAmount ??
+          (expense.paymentType === "installment"
+            ? expense.amount * (expense.installments ?? 1)
+            : expense.amount),
+      ),
+    );
+    setFixedInstallments(String(expense.installments ?? 2));
+    setFixedCurrentInstallment(String(expense.currentInstallment ?? 1));
+    setFixedInstallmentAmountEdited(false);
+    setFixedExpenseStep("form");
     setFixedExpenseModalOpen(true);
   };
 
   const closeFixedExpense = () => {
     setFixedExpenseModalOpen(false);
     setSelectedFixedExpense(null);
+    setFixedInstallmentAmountEdited(false);
+    setFixedExpenseStep("choice");
+  };
+
+  const chooseFixedExpenseType = (type: "single" | "installment") => {
+    setFixedPaymentType(type);
+    if (type === "installment") {
+      setFixedTotalAmount((current) => current || fixedAmount);
+    }
+    setFixedExpenseStep("form");
   };
 
   const openNewGoal = () => {
@@ -772,6 +825,10 @@ function DashboardContent({ state }: { state: FinanceState }) {
     const amount = moneyFromInput(fixedAmount);
     const description = fixedDescription.trim();
     const payday = Number(fixedPayday);
+    const totalAmount = moneyFromInput(fixedTotalAmount);
+    const installments = Math.trunc(Number(fixedInstallments));
+    const currentInstallment = Math.trunc(Number(fixedCurrentInstallment));
+    const isInstallment = fixedPaymentType === "installment";
 
     if (!description) {
       toast.error("Informe uma descrição para a despesa fixa.");
@@ -783,10 +840,45 @@ function DashboardContent({ state }: { state: FinanceState }) {
       return;
     }
 
+    if (isInstallment) {
+      if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
+        toast.error("Informe o valor total da compra parcelada.");
+        return;
+      }
+
+      if (!Number.isFinite(installments) || installments < 1) {
+        toast.error("Informe a quantidade de parcelas.");
+        return;
+      }
+
+      if (
+        !Number.isFinite(currentInstallment) ||
+        currentInstallment < 1 ||
+        currentInstallment > installments
+      ) {
+        toast.error("Informe uma parcela atual válida.");
+        return;
+      }
+    }
+
     if (!Number.isFinite(payday) || payday < 1 || payday > 31) {
       toast.error("Informe um dia de vencimento entre 1 e 31.");
       return;
     }
+
+    const paymentPatch = isInstallment
+      ? {
+          paymentType: "installment" as const,
+          totalAmount,
+          installments,
+          currentInstallment,
+        }
+      : {
+          paymentType: "single" as const,
+          totalAmount: undefined,
+          installments: undefined,
+          currentInstallment: undefined,
+        };
 
     if (selectedFixedExpense) {
       financeActions.updateFixedExpense(selectedFixedExpense.id, {
@@ -795,8 +887,9 @@ function DashboardContent({ state }: { state: FinanceState }) {
         category: fixedCategory,
         payday,
         startsAtMonth: fixedStartsAtMonth,
+        ...paymentPatch,
       });
-      toast.success("Despesa fixa atualizada.");
+      toast.success(isInstallment ? "Despesa parcelada atualizada." : "Despesa fixa atualizada.");
     } else {
       financeActions.addFixedExpense({
         description,
@@ -804,8 +897,9 @@ function DashboardContent({ state }: { state: FinanceState }) {
         category: fixedCategory,
         payday,
         startsAtMonth: fixedStartsAtMonth,
+        ...paymentPatch,
       });
-      toast.success("Despesa fixa cadastrada.");
+      toast.success(isInstallment ? "Despesa parcelada cadastrada." : "Despesa fixa cadastrada.");
     }
 
     closeFixedExpense();
@@ -1214,27 +1308,42 @@ function DashboardContent({ state }: { state: FinanceState }) {
             {activeFixedExpenses
               .slice()
               .sort((a, b) => a.payday - b.payday)
-              .map((expense) => (
-                <li key={expense.id}>
-                  <button
-                    type="button"
-                    onClick={() => openFixedExpense(expense)}
-                    className="flex w-full items-center justify-between gap-3 rounded-xl py-2.5 text-left transition-colors hover:bg-secondary/60 focus-visible:bg-secondary/60"
-                  >
-                    <div className="min-w-0 px-2">
-                      <p className="truncate text-[14px] font-medium">{expense.description}</p>
-                      <p className="text-[12px] text-muted-foreground">
-                        {expense.category} · dia {expense.payday} · desde{" "}
-                        {monthLabel(expense.startsAtMonth)}
-                      </p>
-                    </div>
-                    <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold tabular-nums">
-                      {formatBRL(expense.amount)}
-                      <Pencil className="size-3.5 text-muted-foreground" />
-                    </span>
-                  </button>
-                </li>
-              ))}
+              .map((expense) => {
+                const installment = fixedExpenseInstallmentProgress(expense, currentMonthKey());
+                return (
+                  <li key={expense.id}>
+                    <button
+                      type="button"
+                      onClick={() => openFixedExpense(expense)}
+                      className="flex w-full items-center justify-between gap-3 rounded-xl py-2.5 text-left transition-colors hover:bg-secondary/60 focus-visible:bg-secondary/60"
+                    >
+                      <div className="min-w-0 px-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <p className="truncate text-[14px] font-medium">{expense.description}</p>
+                          {installment && (
+                            <Badge
+                              variant="outline"
+                              className="shrink-0 rounded-full border-primary/20 bg-primary/[0.08] px-2 py-0 text-[10px] font-medium text-primary shadow-none"
+                            >
+                              Parcela {installment.label}
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-[12px] text-muted-foreground">
+                          {expense.category} · dia {expense.payday} ·{" "}
+                          {installment
+                            ? `total ${formatBRL(expense.totalAmount ?? expense.amount)}`
+                            : `desde ${monthLabel(expense.startsAtMonth)}`}
+                        </p>
+                      </div>
+                      <span className="flex shrink-0 items-center gap-2 px-2 text-[14px] font-semibold tabular-nums">
+                        {formatBRL(expense.amount)}
+                        <Pencil className="size-3.5 text-muted-foreground" />
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
           </ul>
         )}
       </div>
@@ -2217,141 +2326,345 @@ function DashboardContent({ state }: { state: FinanceState }) {
       </Dialog>
 
       <Dialog open={fixedExpenseModalOpen} onOpenChange={(open) => !open && closeFixedExpense()}>
-        <DialogContent className="rounded-[20px] sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {selectedFixedExpense ? "Editar despesa fixa" : "Nova despesa fixa"}
-            </DialogTitle>
-            <DialogDescription>
-              Configure um gasto recorrente mensal. Ele será considerado automaticamente no saldo a
-              partir do mês escolhido.
-            </DialogDescription>
+        <DialogContent className="max-h-[calc(100dvh-1.5rem)] overflow-y-auto rounded-[20px] p-4 sm:max-w-md sm:p-5">
+          <DialogHeader className="text-left">
+            <div className="flex items-start gap-2 pr-6">
+              {fixedExpenseStep === "form" && !selectedFixedExpense && (
+                <button
+                  type="button"
+                  onClick={() => setFixedExpenseStep("choice")}
+                  className="mt-[-2px] flex size-9 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+                  aria-label="Voltar para escolha do tipo de despesa"
+                  title="Voltar para escolha do tipo"
+                >
+                  <ArrowLeft className="size-4" />
+                </button>
+              )}
+              <div className="min-w-0">
+                <DialogTitle>
+                  {fixedExpenseStep === "choice"
+                    ? "Nova despesa fixa"
+                    : selectedFixedExpense
+                      ? "Editar despesa fixa"
+                      : fixedPaymentType === "installment"
+                        ? "Despesa fixa parcelada"
+                        : "Despesa fixa mensal"}
+                </DialogTitle>
+                <DialogDescription className="mt-1">
+                  {fixedExpenseStep === "choice"
+                    ? "Escolha primeiro como essa despesa deve ser controlada."
+                    : fixedPaymentType === "installment"
+                      ? "Controle uma compra com quantidade de parcelas."
+                      : "Cadastre uma cobrança que se repete todos os meses."}
+                </DialogDescription>
+              </div>
+            </div>
           </DialogHeader>
 
-          <div className="grid gap-3">
-            <div>
-              <Label htmlFor="fixed-description" className="text-[13px]">
-                Nome ou descrição
-              </Label>
-              <Input
-                id="fixed-description"
-                value={fixedDescription}
-                onChange={(event) => setFixedDescription(event.target.value)}
-                placeholder="Internet, aluguel, assinatura..."
-                className="mt-1.5 rounded-xl"
-              />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="fixed-amount" className="text-[13px]">
-                  Valor
-                </Label>
-                <Input
-                  id="fixed-amount"
-                  inputMode="decimal"
-                  value={fixedAmount}
-                  onChange={(event) => setFixedAmount(event.target.value)}
-                  placeholder="120,00"
-                  className="mt-1.5 rounded-xl"
-                />
-              </div>
-              <div>
-                <Label htmlFor="fixed-payday" className="text-[13px]">
-                  Dia de vencimento
-                </Label>
-                <Input
-                  id="fixed-payday"
-                  type="number"
-                  min={1}
-                  max={31}
-                  value={fixedPayday}
-                  onChange={(event) => setFixedPayday(event.target.value)}
-                  className="mt-1.5 rounded-xl"
-                />
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <Label htmlFor="fixed-category" className="text-[13px]">
-                  Categoria
-                </Label>
-                <select
-                  id="fixed-category"
-                  value={fixedCategory}
-                  onChange={(event) => setFixedCategory(event.target.value)}
-                  className="mt-1.5 h-10 w-full rounded-xl border border-input bg-background px-3 text-[14px] outline-none transition-colors focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring/20"
-                >
-                  {CATEGORIES.map((category) => (
-                    <option key={category} value={category}>
-                      {category}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <Label htmlFor="fixed-starts-at" className="text-[13px]">
-                  A partir de
-                </Label>
-                <Input
-                  id="fixed-starts-at"
-                  type="month"
-                  value={fixedStartsAtMonth}
-                  onChange={(event) => setFixedStartsAtMonth(event.target.value)}
-                  className="mt-1.5 rounded-xl"
-                />
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter className="flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:space-x-0">
-            <div className="order-2 flex w-full gap-2 sm:order-1 sm:w-auto">
-              {selectedFixedExpense && (
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="destructive" className="flex-1 rounded-xl sm:flex-none">
-                      <Trash2 className="size-4" />
-                      Excluir
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent className="rounded-[20px]">
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Excluir esta despesa fixa?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        Essa ação cancela apenas a recorrência para os próximos períodos. Débitos
-                        que já aconteceram continuam no histórico financeiro.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter className="gap-2 sm:space-x-0">
-                      <AlertDialogCancel className="mt-0 rounded-xl">Cancelar</AlertDialogCancel>
-                      <AlertDialogAction
-                        className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                        onClick={deleteSelectedFixedExpense}
-                      >
-                        Excluir definitivamente
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              )}
-
-              <Button
-                variant="outline"
-                className="flex-1 rounded-xl sm:flex-none"
-                onClick={closeFixedExpense}
+          {fixedExpenseStep === "choice" && (
+            <div className="grid gap-2.5">
+              <button
+                type="button"
+                onClick={() => chooseFixedExpenseType("single")}
+                className="group flex items-center gap-3 rounded-2xl border border-border/60 bg-secondary/20 p-3 text-left transition-colors hover:border-primary/25 hover:bg-primary/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
               >
-                Cancelar
-              </Button>
-            </div>
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-primary/[0.08] text-primary transition-colors group-hover:bg-primary/[0.12]">
+                  <CalendarClock className="size-5" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[14px] font-semibold text-foreground">
+                    Despesa fixa mensal
+                  </span>
+                  <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">
+                    Para gastos que se repetem automaticamente todos os meses.
+                  </span>
+                </span>
+              </button>
 
-            <Button
-              className="order-1 w-full rounded-xl sm:order-2 sm:w-auto"
-              onClick={saveFixedExpense}
-            >
-              Salvar
-            </Button>
-          </DialogFooter>
+              <button
+                type="button"
+                onClick={() => chooseFixedExpenseType("installment")}
+                className="group flex items-center gap-3 rounded-2xl border border-border/60 bg-secondary/20 p-3 text-left transition-colors hover:border-primary/25 hover:bg-primary/[0.04] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+              >
+                <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-primary/[0.08] text-primary transition-colors group-hover:bg-primary/[0.12]">
+                  <CreditCard className="size-5" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-[14px] font-semibold text-foreground">
+                    Despesa fixa parcelada
+                  </span>
+                  <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">
+                    Para compras com controle de quantidade e parcela atual.
+                  </span>
+                </span>
+              </button>
+            </div>
+          )}
+
+          {fixedExpenseStep === "form" && (
+            <>
+              <div className="grid gap-2.5">
+                {fixedPaymentType === "single" ? (
+                  <>
+                    <div>
+                      <Label htmlFor="fixed-description" className="text-[13px]">
+                        Nome ou descrição
+                      </Label>
+                      <Input
+                        id="fixed-description"
+                        value={fixedDescription}
+                        onChange={(event) => setFixedDescription(event.target.value)}
+                        placeholder="Internet, aluguel, assinatura..."
+                        className="mt-1.5 h-9 rounded-xl"
+                      />
+                    </div>
+
+                    <div className="grid gap-2.5 sm:grid-cols-2">
+                      <div>
+                        <Label htmlFor="fixed-amount" className="text-[13px]">
+                          Valor
+                        </Label>
+                        <Input
+                          id="fixed-amount"
+                          inputMode="decimal"
+                          value={fixedAmount}
+                          onChange={(event) => setFixedAmount(event.target.value)}
+                          placeholder="120,00"
+                          className="mt-1.5 h-9 rounded-xl"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="fixed-payday" className="text-[13px]">
+                          Dia de vencimento
+                        </Label>
+                        <Input
+                          id="fixed-payday"
+                          type="number"
+                          min={1}
+                          max={31}
+                          value={fixedPayday}
+                          onChange={(event) => setFixedPayday(event.target.value)}
+                          className="mt-1.5 h-9 rounded-xl"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-2.5 sm:grid-cols-2">
+                      <div>
+                        <Label htmlFor="fixed-category" className="text-[13px]">
+                          Categoria
+                        </Label>
+                        <select
+                          id="fixed-category"
+                          value={fixedCategory}
+                          onChange={(event) => setFixedCategory(event.target.value)}
+                          className="mt-1.5 h-9 w-full rounded-xl border border-input bg-background px-3 text-[14px] outline-none transition-colors focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring/20"
+                        >
+                          {CATEGORIES.map((category) => (
+                            <option key={category} value={category}>
+                              {category}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <Label htmlFor="fixed-starts-at" className="text-[13px]">
+                          A partir de
+                        </Label>
+                        <Input
+                          id="fixed-starts-at"
+                          type="month"
+                          value={fixedStartsAtMonth}
+                          onChange={(event) => setFixedStartsAtMonth(event.target.value)}
+                          className="mt-1.5 h-9 rounded-xl"
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="grid gap-2.5 sm:grid-cols-[1.15fr_0.85fr]">
+                      <div>
+                        <Label htmlFor="fixed-description" className="text-[13px]">
+                          Nome da compra
+                        </Label>
+                        <Input
+                          id="fixed-description"
+                          value={fixedDescription}
+                          onChange={(event) => setFixedDescription(event.target.value)}
+                          placeholder="Notebook, celular, compra..."
+                          className="mt-1.5 h-9 rounded-xl"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="fixed-category" className="text-[13px]">
+                          Categoria
+                        </Label>
+                        <select
+                          id="fixed-category"
+                          value={fixedCategory}
+                          onChange={(event) => setFixedCategory(event.target.value)}
+                          className="mt-1.5 h-9 w-full rounded-xl border border-input bg-background px-3 text-[14px] outline-none transition-colors focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring/20"
+                        >
+                          {CATEGORIES.map((category) => (
+                            <option key={category} value={category}>
+                              {category}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 rounded-2xl border border-border/55 bg-secondary/20 p-2.5 sm:grid-cols-4">
+                      <div>
+                        <Label htmlFor="fixed-total-amount" className="text-[12.5px]">
+                          Total
+                        </Label>
+                        <Input
+                          id="fixed-total-amount"
+                          inputMode="decimal"
+                          value={fixedTotalAmount}
+                          onChange={(event) => {
+                            setFixedTotalAmount(event.target.value);
+                            setFixedInstallmentAmountEdited(false);
+                          }}
+                          placeholder="1.200"
+                          className="mt-1 h-8 rounded-xl px-2 text-[13px]"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="fixed-installment-amount" className="text-[12.5px]">
+                          Parcela
+                        </Label>
+                        <Input
+                          id="fixed-installment-amount"
+                          inputMode="decimal"
+                          value={fixedAmount}
+                          onChange={(event) => {
+                            setFixedAmount(event.target.value);
+                            setFixedInstallmentAmountEdited(true);
+                          }}
+                          placeholder="100"
+                          className="mt-1 h-8 rounded-xl px-2 text-[13px]"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="fixed-installments" className="text-[12.5px]">
+                          Qtd.
+                        </Label>
+                        <Input
+                          id="fixed-installments"
+                          type="number"
+                          min={1}
+                          max={360}
+                          value={fixedInstallments}
+                          onChange={(event) => {
+                            setFixedInstallments(event.target.value);
+                            setFixedInstallmentAmountEdited(false);
+                          }}
+                          className="mt-1 h-8 rounded-xl px-2 text-[13px]"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="fixed-current-installment" className="text-[12.5px]">
+                          Atual
+                        </Label>
+                        <Input
+                          id="fixed-current-installment"
+                          type="number"
+                          min={1}
+                          max={Math.max(1, Number(fixedInstallments) || 1)}
+                          value={fixedCurrentInstallment}
+                          onChange={(event) => setFixedCurrentInstallment(event.target.value)}
+                          className="mt-1 h-8 rounded-xl px-2 text-[13px]"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <Label htmlFor="fixed-payday" className="text-[13px]">
+                          Vencimento
+                        </Label>
+                        <Input
+                          id="fixed-payday"
+                          type="number"
+                          min={1}
+                          max={31}
+                          value={fixedPayday}
+                          onChange={(event) => setFixedPayday(event.target.value)}
+                          className="mt-1.5 h-9 rounded-xl"
+                        />
+                      </div>
+                      <div>
+                        <Label htmlFor="fixed-starts-at" className="text-[13px]">
+                          A partir de
+                        </Label>
+                        <Input
+                          id="fixed-starts-at"
+                          type="month"
+                          value={fixedStartsAtMonth}
+                          onChange={(event) => setFixedStartsAtMonth(event.target.value)}
+                          className="mt-1.5 h-9 rounded-xl"
+                        />
+                      </div>
+                    </div>
+
+                    <p className="text-[11.5px] leading-snug text-muted-foreground">
+                      Uma parcela por mês. Ao chegar na última, ela sai da lista automaticamente.
+                    </p>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+
+          {fixedExpenseStep === "form" && (
+            <DialogFooter className="!flex-col gap-2 pt-1 sm:!flex-row-reverse sm:items-center sm:justify-between sm:space-x-0">
+              <Button className="w-full rounded-xl sm:w-auto" onClick={saveFixedExpense}>
+                Salvar
+              </Button>
+
+              <div className="flex w-full gap-2 sm:w-auto">
+                {selectedFixedExpense && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button variant="destructive" className="flex-1 rounded-xl sm:flex-none">
+                        <Trash2 className="size-4" />
+                        Excluir
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="rounded-[20px]">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Excluir esta despesa fixa?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Essa ação cancela apenas a recorrência para os próximos períodos. Débitos
+                          que já aconteceram continuam no histórico financeiro.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter className="gap-2 sm:space-x-0">
+                        <AlertDialogCancel className="mt-0 rounded-xl">Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          onClick={deleteSelectedFixedExpense}
+                        >
+                          Excluir definitivamente
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
+
+                <Button
+                  variant="outline"
+                  className="flex-1 rounded-xl sm:flex-none"
+                  onClick={closeFixedExpense}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            </DialogFooter>
+          )}
         </DialogContent>
       </Dialog>
     </div>

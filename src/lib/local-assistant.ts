@@ -4,6 +4,7 @@
   currentMonthKey,
   financeActions,
   fixedExpenseOccurrencesForMonth,
+  fixedExpenseInstallmentProgress,
   forecastFutureMonth,
   forecastNextMonth,
   forecastUntilDate,
@@ -2113,9 +2114,9 @@ function answerFixedExpenseHelp(text: string) {
   const detail =
     amount || days.length
       ? `\n\nPelo que você informou, a despesa parece ser ${amount ? `de **${formatBRL(amount)}**` : "mensal"}${days[0] ? ` com vencimento no dia **${days[0]}**` : ""}. Para salvar com nome, categoria e início correto, use o Dashboard.`
-      : "\n\nSe quiser cadastrar uma despesa mensal fixa, informe valor, nome e dia de vencimento no Dashboard. Exemplo: internet, R$ 120,00, vencimento dia 10.";
+      : "\n\nSe quiser cadastrar uma despesa fixa ou parcelada, use o Dashboard. Exemplo: internet, R$ 120,00, vencimento dia 10, ou uma compra parcelada com valor total e quantidade de parcelas.";
 
-  return `As despesas fixas são gerenciadas pelo **Dashboard**, na seção **Despesas fixas**. Lá você pode adicionar, editar ou excluir recorrências mensais com segurança.\n\nQuando a data de vencimento chega em cada mês, essa despesa passa a ser considerada automaticamente no saldo, nos limites e nas projeções.${detail}`;
+  return `As despesas fixas são gerenciadas pelo **Dashboard**, na seção **Despesas fixas**. Lá você pode adicionar, editar ou excluir recorrências mensais e compras parceladas com segurança.\n\nQuando a data de vencimento chega em cada mês, essa despesa passa a ser considerada automaticamente no saldo, nos limites e nas projeções.${detail}`;
 }
 
 function isFixedExpenseListRequest(text: string) {
@@ -2124,7 +2125,10 @@ function isFixedExpenseListRequest(text: string) {
 
 function listFixedExpenses(month: string) {
   const fixedExpenses = getFinanceState()
-    .fixedExpenses.filter((expense) => !expense.canceledAt)
+    .fixedExpenses.filter(
+      (expense) =>
+        !expense.canceledAt && !fixedExpenseInstallmentProgress(expense, month)?.completed,
+    )
     .slice()
     .sort((a, b) => a.payday - b.payday || a.description.localeCompare(b.description, "pt-BR"));
 
@@ -2144,7 +2148,12 @@ function listFixedExpenses(month: string) {
     ...fixedExpenses.map((expense) => {
       const status =
         month >= expense.startsAtMonth ? "" : `, começa em ${monthLabel(expense.startsAtMonth)}`;
-      return `- **${expense.description}**: ${formatBRL(expense.amount)}, vencimento dia ${String(expense.payday).padStart(2, "0")}${status}`;
+      const installment = fixedExpenseInstallmentProgress(expense, month);
+      const installmentStatus = installment ? `, parcela **${installment.label}**` : "";
+      const total = installment
+        ? `, total ${formatBRL(expense.totalAmount ?? expense.amount)}`
+        : "";
+      return `- **${expense.description}**: ${formatBRL(expense.amount)}, vencimento dia ${String(expense.payday).padStart(2, "0")}${installmentStatus}${total}${status}`;
     }),
     "\nPara editar ou excluir alguma delas, acesse o **Dashboard**, na seção **Despesas fixas**.",
   ].join("\n");
