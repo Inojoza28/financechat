@@ -16,6 +16,7 @@ import {
   Eye,
   EyeOff,
   LayoutDashboard,
+  Minus,
   Pencil,
   PencilLine,
   PiggyBank,
@@ -98,6 +99,7 @@ const CHART_TOOLTIP_STYLE = {
 const DASHBOARD_CARDS_HIDDEN_KEY = "heyfin.dashboard.cardsHidden";
 const FUTURE_LAUNCHES_COLLAPSED_KEY = "heyfin.dashboard.futureLaunchesCollapsed";
 const RECENT_LAUNCH_PAGE_SIZE = 7;
+const GOAL_CARD_LIMIT = 3;
 
 type EditableStatKey = "income" | "extraIncome" | "spent" | "limit";
 
@@ -268,6 +270,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const [selectedGoal, setSelectedGoal] = useState<FinancialGoal | null>(null);
   const [goalName, setGoalName] = useState("");
   const [goalTargetAmount, setGoalTargetAmount] = useState("");
+  const [goalsExpanded, setGoalsExpanded] = useState(false);
   const [contributionGoal, setContributionGoal] = useState<FinancialGoal | null>(null);
   const [contributionAmount, setContributionAmount] = useState("");
   const [selectedFixedOccurrence, setSelectedFixedOccurrence] = useState<Extract<
@@ -299,6 +302,11 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const today = localISODate();
   const activeFixedExpenses = state.fixedExpenses.filter((expense) => !expense.canceledAt);
   const goals = goalsWithProgress(state);
+  const visibleGoals = goalsExpanded ? goals : goals.slice(0, GOAL_CARD_LIMIT);
+  const hasMoreGoals = goals.length > GOAL_CARD_LIMIT;
+  const contributionGoalProgress = contributionGoal
+    ? goals.find((goal) => goal.id === contributionGoal.id)
+    : null;
   const futureLaunches = state.expenses
     .filter(
       (expense) => !expense.balanceAdjustment && !expense.goalContribution && expense.date > today,
@@ -721,6 +729,12 @@ function DashboardContent({ state }: { state: FinanceState }) {
     setContributionAmount("");
   };
 
+  const addToContributionAmount = (increment: number) => {
+    const current = moneyFromInput(contributionAmount);
+    const next = Math.max(0, (Number.isFinite(current) ? current : 0) + increment);
+    setContributionAmount(next > 0 ? moneyToInput(Number(next.toFixed(2))) : "");
+  };
+
   const saveGoalContribution = () => {
     if (!contributionGoal) return;
     const amount = moneyFromInput(contributionAmount);
@@ -741,7 +755,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
       amount,
       manual: true,
     });
-    toast.success("Aporte registrado no cofrinho.");
+    toast.success(`${formatBRL(amount)} guardados em ${contributionGoal.name}.`);
     closeGoalContribution();
   };
 
@@ -1072,74 +1086,93 @@ function DashboardContent({ state }: { state: FinanceState }) {
               </div>
             </div>
           ) : (
-            <div className="grid gap-3 border-t border-border/45 p-4 sm:p-5 md:grid-cols-2">
-              {goals.map((goal) => (
-                <div
-                  key={goal.id}
-                  className="group rounded-2xl border border-border/55 bg-background/60 p-4 transition-all duration-200 hover:border-emerald-300/50 hover:shadow-[0_14px_34px_-28px_hsl(155_70%_34%/0.45)] dark:bg-background/25 dark:hover:border-success/30 dark:hover:shadow-none"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100 dark:bg-success/[0.12] dark:text-success dark:ring-success/20">
-                          <Target className="size-3.5" />
-                        </span>
-                        <p className="truncate text-[14px] font-semibold">{goal.name}</p>
+            <div className="border-t border-border/45 p-4 sm:p-5">
+              <div className="grid gap-3 md:grid-cols-2">
+                {visibleGoals.map((goal) => (
+                  <div
+                    key={goal.id}
+                    className="group rounded-2xl border border-border/55 bg-background/60 p-4 transition-all duration-200 hover:border-emerald-300/50 hover:shadow-[0_14px_34px_-28px_hsl(155_70%_34%/0.45)] dark:bg-background/25 dark:hover:border-success/30 dark:hover:shadow-none"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100 dark:bg-success/[0.12] dark:text-success dark:ring-success/20">
+                            <Target className="size-3.5" />
+                          </span>
+                          <p className="truncate text-[14px] font-semibold">{goal.name}</p>
+                        </div>
+                        <p className="mt-2 text-[12px] text-muted-foreground">
+                          Guardado{" "}
+                          <span className="font-semibold text-foreground">
+                            {formatBRL(goal.saved)}
+                          </span>{" "}
+                          de {formatBRL(goal.targetAmount)}
+                        </p>
                       </div>
-                      <p className="mt-2 text-[12px] text-muted-foreground">
-                        Guardado{" "}
-                        <span className="font-semibold text-foreground">
-                          {formatBRL(goal.saved)}
-                        </span>{" "}
-                        de {formatBRL(goal.targetAmount)}
-                      </p>
-                    </div>
-                    <Badge
-                      variant="outline"
-                      className="shrink-0 rounded-full border-emerald-200/75 bg-emerald-50 px-2.5 py-0.5 text-[10.5px] font-medium text-emerald-700 shadow-none dark:border-success/25 dark:bg-success/[0.12] dark:text-success"
-                    >
-                      {goal.percent}%
-                    </Badge>
-                  </div>
-
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
-                    <div
-                      className="h-full rounded-full bg-success transition-all duration-700"
-                      style={{ width: `${goal.percent}%` }}
-                    />
-                  </div>
-
-                  <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-[12px] text-muted-foreground">
-                      Restante{" "}
-                      <span className="font-semibold text-foreground">
-                        {formatBRL(goal.remaining)}
-                      </span>
-                    </p>
-                    <div className="grid grid-cols-2 gap-2 sm:flex">
-                      <Button
-                        type="button"
+                      <Badge
                         variant="outline"
-                        size="sm"
-                        className="h-8 rounded-full px-3 text-[12px]"
-                        onClick={() => openGoal(goal)}
+                        className="shrink-0 rounded-full border-emerald-200/75 bg-emerald-50 px-2.5 py-0.5 text-[10.5px] font-medium text-emerald-700 shadow-none dark:border-success/25 dark:bg-success/[0.12] dark:text-success"
                       >
-                        <Pencil className="size-3.5" />
-                        Editar
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        className="h-8 rounded-full px-3 text-[12px]"
-                        onClick={() => openGoalContribution(goal)}
-                      >
-                        <Plus className="size-3.5" />
-                        Aportar
-                      </Button>
+                        {goal.percent}%
+                      </Badge>
+                    </div>
+
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
+                      <div
+                        className="h-full rounded-full bg-success transition-all duration-700"
+                        style={{ width: `${goal.percent}%` }}
+                      />
+                    </div>
+
+                    <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-[12px] text-muted-foreground">
+                        Restante{" "}
+                        <span className="font-semibold text-foreground">
+                          {formatBRL(goal.remaining)}
+                        </span>
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 sm:flex">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 rounded-full px-3 text-[12px]"
+                          onClick={() => openGoal(goal)}
+                        >
+                          <Pencil className="size-3.5" />
+                          Editar
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-8 rounded-full px-3 text-[12px]"
+                          onClick={() => openGoalContribution(goal)}
+                        >
+                          <Plus className="size-3.5" />
+                          Aportar
+                        </Button>
+                      </div>
                     </div>
                   </div>
+                ))}
+              </div>
+
+              {hasMoreGoals && (
+                <div className="mt-3 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setGoalsExpanded((value) => !value)}
+                    className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+                  >
+                    {goalsExpanded ? "Recolher" : `Exibir mais ${goals.length - GOAL_CARD_LIMIT}`}
+                    <ChevronDown
+                      className={`size-3.5 transition-transform duration-200 ${
+                        goalsExpanded ? "rotate-180" : ""
+                      }`}
+                    />
+                  </button>
                 </div>
-              ))}
+              )}
             </div>
           )}
         </div>
@@ -2029,8 +2062,8 @@ function DashboardContent({ state }: { state: FinanceState }) {
                     <AlertDialogHeader>
                       <AlertDialogTitle>Excluir esta meta?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Isso remove a meta e os aportes vinculados a ela. Como os aportes saem do
-                        saldo, o valor guardado volta a ficar disponível.
+                        Isso remove apenas o cofrinho. Os aportes já registrados continuam em
+                        Últimos lançamentos e não voltam automaticamente para o saldo.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="gap-2 sm:space-x-0">
@@ -2066,48 +2099,109 @@ function DashboardContent({ state }: { state: FinanceState }) {
         open={Boolean(contributionGoal)}
         onOpenChange={(open) => !open && closeGoalContribution()}
       >
-        <DialogContent className="rounded-[20px] sm:max-w-md">
+        <DialogContent className="rounded-[22px] border-border/70 bg-surface/95 p-5 shadow-[0_24px_70px_-48px_hsl(155_45%_20%/0.55)] backdrop-blur-xl sm:max-w-[30rem] sm:p-6 dark:bg-surface/95">
           <DialogHeader>
-            <DialogTitle>Adicionar aporte</DialogTitle>
-            <DialogDescription>
-              O valor sai do saldo disponível e entra no progresso da meta.
+            <DialogTitle className="text-[22px]">Colocar no cofrinho</DialogTitle>
+            <DialogDescription className="text-[14px]">
+              Separe um valor do saldo disponível para avançar nessa meta.
             </DialogDescription>
           </DialogHeader>
 
           {contributionGoal && (
-            <div className="grid gap-3">
-              <div className="rounded-2xl border border-emerald-100/80 bg-emerald-50/45 px-3 py-3 dark:border-success/20 dark:bg-success/[0.08]">
-                <p className="text-[13px] font-semibold">{contributionGoal.name}</p>
-                <p className="mt-1 text-[12px] text-muted-foreground">
-                  Objetivo: {formatBRL(contributionGoal.targetAmount)}
-                </p>
+            <div className="grid gap-4">
+              <div className="flex flex-wrap items-start justify-between gap-2 text-[13px]">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold">{contributionGoal.name}</p>
+                  <p className="mt-0.5 text-muted-foreground">
+                    {formatBRL(contributionGoalProgress?.saved ?? 0)} de{" "}
+                    {formatBRL(contributionGoal.targetAmount)}
+                  </p>
+                </div>
+                <span className="rounded-full border border-success/25 bg-success/10 px-2.5 py-1 text-[12px] font-semibold text-success">
+                  {contributionGoalProgress?.percent ?? 0}%
+                </span>
               </div>
 
-              <div>
-                <Label htmlFor="goal-contribution-amount" className="text-[13px]">
-                  Valor do aporte
+              <div className="text-center">
+                <Label
+                  htmlFor="goal-contribution-amount"
+                  className="text-[15px] font-semibold text-foreground"
+                >
+                  Quanto você quer colocar?
                 </Label>
-                <Input
-                  id="goal-contribution-amount"
-                  inputMode="decimal"
-                  value={contributionAmount}
-                  onChange={(event) => setContributionAmount(event.target.value)}
-                  placeholder="100,00"
-                  className="mt-1.5 rounded-xl"
-                />
-                <p className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">
-                  Esse lançamento aparecerá em Últimos lançamentos com o badge Meta.
+                <div className="mt-3 grid grid-cols-[auto_1fr_auto] items-center gap-2 rounded-[18px] border border-emerald-300/55 bg-background/75 px-3 py-3 ring-1 ring-emerald-100/70 transition-colors focus-within:border-emerald-400/70 focus-within:ring-2 focus-within:ring-emerald-400/15 sm:gap-3 sm:px-4 dark:border-success/28 dark:bg-background/35 dark:ring-success/10">
+                  <button
+                    type="button"
+                    onClick={() => addToContributionAmount(-10)}
+                    className="flex size-9 items-center justify-center rounded-full bg-secondary text-foreground transition-colors hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+                    aria-label="Diminuir aporte em 10 reais"
+                  >
+                    <Minus className="size-4" />
+                  </button>
+
+                  <div className="flex min-w-0 items-center justify-center gap-2">
+                    <span className="text-[22px] font-semibold text-success">R$</span>
+                    <Input
+                      id="goal-contribution-amount"
+                      inputMode="decimal"
+                      value={contributionAmount}
+                      onChange={(event) => setContributionAmount(event.target.value)}
+                      placeholder="0,00"
+                      className="h-16 min-w-0 border-0 bg-transparent px-0 text-center !text-[22px] font-semibold leading-none shadow-none ring-0 focus-visible:ring-0"
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => addToContributionAmount(10)}
+                    className="flex size-9 items-center justify-center rounded-full bg-secondary text-foreground transition-colors hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
+                    aria-label="Aumentar aporte em 10 reais"
+                  >
+                    <Plus className="size-4" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {[10, 25, 50, 100].map((amount) => (
+                  <button
+                    key={amount}
+                    type="button"
+                    onClick={() => addToContributionAmount(amount)}
+                    className="inline-flex h-10 items-center justify-center gap-2 rounded-full border border-border/60 bg-background/55 text-[13px] font-semibold transition-colors hover:border-emerald-300/60 hover:bg-emerald-50 hover:text-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 dark:bg-background/25 dark:hover:border-success/30 dark:hover:bg-success/[0.08] dark:hover:text-success"
+                  >
+                    <Plus className="size-4 text-success" />
+                    {formatBRL(amount)}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-start gap-2.5 rounded-2xl border border-border/55 bg-background/55 px-3.5 py-2.5 text-[12.5px] leading-relaxed text-muted-foreground dark:bg-background/25">
+                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-md bg-success/15 text-success">
+                  <PiggyBank className="size-3.5" />
+                </span>
+                <p>
+                  Esse valor sairá do saldo disponível e aparecerá em Últimos lançamentos com o
+                  badge Meta.
                 </p>
               </div>
             </div>
           )}
 
-          <DialogFooter className="gap-2 sm:space-x-0">
-            <Button variant="outline" className="rounded-xl" onClick={closeGoalContribution}>
+          <DialogFooter className="flex-col-reverse gap-2 sm:grid sm:grid-cols-[0.82fr_1.18fr] sm:space-x-0">
+            <Button
+              variant="outline"
+              className="w-full rounded-full"
+              onClick={closeGoalContribution}
+            >
               Cancelar
             </Button>
-            <Button className="rounded-xl" onClick={saveGoalContribution}>
-              Aportar
+            <Button
+              className="w-full rounded-full bg-success text-success-foreground hover:bg-success/90"
+              onClick={saveGoalContribution}
+            >
+              <PiggyBank className="size-4" />
+              Salvar
             </Button>
           </DialogFooter>
         </DialogContent>

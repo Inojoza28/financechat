@@ -685,7 +685,6 @@ export const financeActions = {
     write({
       ...s,
       goals: s.goals.filter((goal) => goal.id !== id),
-      expenses: s.expenses.filter((expense) => expense.goalId !== id),
     });
   },
   addGoalContribution(input: {
