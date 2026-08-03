@@ -44,10 +44,13 @@ import {
   chatMonthKeys,
   currentMonthKey,
   financeActions,
+  fixedExpenseOccurrencesForMonth,
   formatBRL,
   getFinanceState,
   localISODate,
+  monthKey,
   monthLabel,
+  offsetMonthKey,
   summarize,
   useFinance,
 } from "@/lib/finance-store";
@@ -68,6 +71,7 @@ const FALLBACK_RESPONSE =
   "Desculpe, não consegui entender ou responder essa solicitação. Posso ajudar você a registrar receitas e despesas, consultar seu saldo, fazer projeções financeiras, mostrar seus gastos e responder dúvidas relacionadas ao seu controle financeiro. Tente reformular a pergunta com um valor, período ou objetivo financeiro.";
 
 const SMART_SUGGESTIONS_SEEN_KEY = "heyfin.smart-suggestions.seen.v1";
+const RECENT_SPENDING_WINDOW_MS = 4 * 60 * 60 * 1000;
 
 type SpeechRecognitionResult = ArrayLike<{ transcript: string }> & {
   isFinal?: boolean;
@@ -144,6 +148,12 @@ function messageText(message?: UIMessage) {
   );
 }
 
+function dateTimeValue(value?: string) {
+  if (!value) return 0;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
 function TypingIndicator() {
   return (
     <div className="inline-flex items-center gap-2 rounded-full bg-secondary/80 px-3 py-2 text-[13px] text-muted-foreground">
@@ -213,6 +223,7 @@ export function ChatWindow() {
     if (!state.showSmartSuggestions || !lastAssistantMessage) return null;
 
     const now = new Date();
+    const nowTime = now.getTime();
     const todayKey = localISODate(now);
     const [year, monthIndex] = selectedMonth.split("-").map(Number);
     const daysInMonth =
@@ -222,9 +233,9 @@ export function ChatWindow() {
     const isCurrentMonth = selectedMonth === currentMonthKey();
     const dayOfMonth = isCurrentMonth ? now.getDate() : daysInMonth;
     const assistantText = messageText(lastAssistantMessage).toLowerCase();
-    const actions: QuickAction[] = [];
+    const actions: Array<QuickAction & { priority: number }> = [];
 
-    const addAction = (action: QuickAction) => {
+    const addAction = (action: QuickAction & { priority: number }) => {
       if (actions.some((item) => item.command === action.command || item.label === action.label)) {
         return;
       }
@@ -237,6 +248,149 @@ export function ChatWindow() {
     const answeredDailySummary = assistantText.includes("resumo de hoje");
     const answeredMonthlySummary =
       assistantText.includes("resumo atualizado") || assistantText.includes("gasto no mês");
+    const hasLimit = summary.spendingLimit != null && summary.spendingLimit > 0;
+    const currentMonthExpenses = state.expenses.filter(
+      (expense) =>
+        !expense.balanceAdjustment &&
+        !expense.goalContribution &&
+        expense.date <= todayKey &&
+        monthKey(expense.date) === selectedMonth,
+    );
+    const recentSpending = currentMonthExpenses
+      .filter((expense) => nowTime - dateTimeValue(expense.createdAt) <= RECENT_SPENDING_WINDOW_MS)
+      .reduce((total, expense) => total + expense.amount, 0);
+    const latestExpense = currentMonthExpenses
+      .slice()
+      .sort((a, b) => dateTimeValue(b.createdAt) - dateTimeValue(a.createdAt))[0];
+    const latestExpenseIsFresh =
+      latestExpense && nowTime - dateTimeValue(latestExpense.createdAt) <= 8 * 60 * 1000;
+    const largeExpenseReference = hasLimit
+      ? Math.max(100, (summary.spendingLimit ?? 0) * 0.12)
+      : Math.max(100, Math.max(0, summary.balance) * 0.08);
+    const recentSpendingReference = hasLimit
+      ? Math.max(300, (summary.spendingLimit ?? 0) * 0.18)
+      : Math.max(300, Math.max(0, summary.balance) * 0.12);
+    const nextMonth = offsetMonthKey(selectedMonth, 1);
+    const nextMonthEnd = `${nextMonth}-${String(new Date(Number(nextMonth.slice(0, 4)), Number(nextMonth.slice(5, 7)), 0).getDate()).padStart(2, "0")}`;
+    const futureExpenseCount = state.expenses.filter(
+      (expense) =>
+        !expense.balanceAdjustment &&
+        !expense.goalContribution &&
+        expense.date > todayKey &&
+        expense.date <= nextMonthEnd,
+    ).length;
+    const upcomingFixedExpenseCount = [selectedMonth, nextMonth]
+      .flatMap((entryMonth) =>
+        fixedExpenseOccurrencesForMonth(
+          state.fixedExpenses,
+          entryMonth,
+          state.deletedFixedExpenseOccurrences,
+          state.fixedExpenseOccurrenceOverrides,
+        ),
+      )
+      .filter((expense) => expense.date > todayKey && expense.date <= nextMonthEnd).length;
+    const hasFutureReminder = futureExpenseCount + upcomingFixedExpenseCount > 0;
+    const previousMonthSummary = summarize(state, offsetMonthKey(selectedMonth, -1));
+    const canCompareSpendingPace =
+      isCurrentMonth &&
+      dayOfMonth >= 7 &&
+      summary.manualExpenseCount >= 3 &&
+      previousMonthSummary.count >= 3 &&
+      previousMonthSummary.spent > 0;
+
+    if (isCurrentMonth && hasLimit && summary.limitStatus === "exceeded") {
+      addAction({
+        id: `limit-exceeded:${selectedMonth}`,
+        label: "Ver situação do limite",
+        command: "Meu limite de gastos",
+        icon: Gauge,
+        tone: "warning",
+        priority: 100,
+      });
+    }
+
+    if (isCurrentMonth && hasLimit && summary.limitStatus === "warning") {
+      addAction({
+        id: `limit-warning:${selectedMonth}`,
+        label: "Quanto ainda tenho no limite?",
+        command: "Meu limite de gastos",
+        icon: Gauge,
+        tone: "warning",
+        priority: 90,
+      });
+    }
+
+    if (
+      isCurrentMonth &&
+      recentSpending >= recentSpendingReference &&
+      currentMonthExpenses.length >= 2
+    ) {
+      addAction({
+        id: `recent-spending:${todayKey}`,
+        label: "Ver gastos dos últimos 7 dias",
+        command: "Quanto gastei nos últimos 7 dias?",
+        icon: CalendarDays,
+        priority: 80,
+      });
+    }
+
+    if (
+      isCurrentMonth &&
+      hasLimit &&
+      latestExpense &&
+      latestExpenseIsFresh &&
+      latestExpense.amount >= largeExpenseReference &&
+      summary.limitStatus !== "exceeded"
+    ) {
+      addAction({
+        id: `large-expense-limit:${todayKey}`,
+        label: "Ver impacto no limite",
+        command: "Meu limite de gastos",
+        icon: Gauge,
+        priority: 70,
+      });
+    }
+
+    if (isCurrentMonth && summary.count >= 5 && summary.byCategory.length > 0 && dayOfMonth >= 7) {
+      addAction({
+        id: `monthly-weight:${selectedMonth}`,
+        label: "O que mais pesou no meu mês?",
+        command: "O que mais pesou no meu mês?",
+        icon: Info,
+        priority: 62,
+      });
+    }
+
+    if (isCurrentMonth && (hasLimit || dayOfMonth >= 10) && summary.balance > 0) {
+      addAction({
+        id: `daily-spend-plan:${todayKey}`,
+        label: "Quanto posso gastar por dia?",
+        command: "Quanto posso gastar por dia até o fim do mês?",
+        icon: Gauge,
+        tone: "success",
+        priority: 58,
+      });
+    }
+
+    if (hasFutureReminder) {
+      addAction({
+        id: `future-reminder:${selectedMonth}`,
+        label: "Tenho alguma despesa futura para lembrar?",
+        command: "Tenho alguma despesa futura para lembrar?",
+        icon: CalendarDays,
+        priority: 56,
+      });
+    }
+
+    if (canCompareSpendingPace) {
+      addAction({
+        id: `spending-pace:${selectedMonth}`,
+        label: "Estou gastando mais rápido que o normal?",
+        command: "Estou gastando mais rápido que o normal?",
+        icon: TrendingUp,
+        priority: 54,
+      });
+    }
 
     if (isMonthClosing && answeredMonthlySummary) {
       addAction({
@@ -245,6 +399,7 @@ export function ChatWindow() {
         command: "Quanto vou ter no próximo mês?",
         icon: TrendingUp,
         tone: "success",
+        priority: 55,
       });
     } else if (isMonthClosing) {
       addAction({
@@ -252,6 +407,7 @@ export function ChatWindow() {
         label: "Como foi o meu mês?",
         command: "Como foi o meu mês?",
         icon: CalendarDays,
+        priority: 50,
       });
     } else if (isEndOfDay && !answeredDailySummary) {
       addAction({
@@ -259,6 +415,7 @@ export function ChatWindow() {
         label: "Como foi o meu dia?",
         command: "Resumo do dia",
         icon: Moon,
+        priority: 40,
       });
     } else if (isMorning && !assistantText.includes("ideal para gastar hoje")) {
       addAction({
@@ -267,11 +424,26 @@ export function ChatWindow() {
         command: "Quanto seria o ideal para gastar hoje?",
         icon: Gauge,
         tone: "success",
+        priority: 30,
       });
     }
 
-    return actions[0] ?? null;
-  }, [lastAssistantMessage, selectedMonth, state.showSmartSuggestions]);
+    return actions.sort((a, b) => b.priority - a.priority)[0] ?? null;
+  }, [
+    lastAssistantMessage,
+    selectedMonth,
+    state.deletedFixedExpenseOccurrences,
+    state.expenses,
+    state.fixedExpenseOccurrenceOverrides,
+    state.fixedExpenses,
+    state.showSmartSuggestions,
+    summary.balance,
+    summary.byCategory,
+    summary.count,
+    summary.limitStatus,
+    summary.manualExpenseCount,
+    summary.spendingLimit,
+  ]);
 
   useEffect(() => {
     if (!state.showSmartSuggestions || !lastAssistantMessage || !contextualAction) {

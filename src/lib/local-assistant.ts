@@ -1273,6 +1273,147 @@ function answerIdealDailySpend(month: string) {
   return `Para manter o mês equilibrado, o ideal seria gastar até cerca de **${formatBRL(ideal)} hoje**.\n\nUsei como base seu saldo disponível de **${formatBRL(s.balance)}** e os **${remainingDays} dia${remainingDays === 1 ? "" : "s"}** restantes em ${monthLabel(month)}.${limitText}`;
 }
 
+function isMonthlyWeightQuestion(text: string) {
+  return (
+    /\b(o que|qual|quais)\b.*\b(pesou|mais pesou|mais gastei|maior gasto|maiores gastos)\b/.test(
+      text,
+    ) || /\b(categoria|categorias)\b.*\b(mais|maior|pesou|gastei)\b/.test(text)
+  );
+}
+
+function answerMonthlyWeight(month: string) {
+  const s = summarize(getFinanceState(), month);
+  if (!s.byCategory.length || s.spent <= 0) {
+    return `Ainda não há gastos suficientes em ${monthLabel(month)} para identificar o que mais pesou no mês.`;
+  }
+
+  const top = s.byCategory[0];
+  const topPercent = Math.round((top.total / s.spent) * 100);
+  const next = s.byCategory.slice(1, 3);
+  const nextText = next.length
+    ? `\n\nDepois aparecem ${next
+        .map((item) => `**${item.category}** com ${formatBRL(item.total)}`)
+        .join(" e ")}.`
+    : "";
+
+  return `O que mais pesou em ${monthLabel(month)} foi **${top.category}**: **${formatBRL(top.total)}**, cerca de **${topPercent}%** dos seus gastos do período.\n\nTotal gasto no mês: **${formatBRL(s.spent)}**.${nextText}\n\nSe quiser reduzir impacto, essa é a primeira categoria que vale acompanhar com mais atenção.`;
+}
+
+function isFutureReminderQuestion(text: string) {
+  return (
+    /\b(tenho|existe|ha|há|tem)\b.*\b(despesa|despesas|gasto|gastos|lancamento|lançamento)\b.*\b(futura|futuras|futuro|futuros|prevista|previstas|programada|programadas|lembrar)\b/.test(
+      text,
+    ) ||
+    /\b(o que|quais)\b.*\b(vem por ai|vem por aí|esta previsto|está previsto|programado)\b/.test(
+      text,
+    )
+  );
+}
+
+function assistantDateLabel(iso: string) {
+  return localDateFromISO(iso).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "short",
+  });
+}
+
+function answerFutureReminder(month: string) {
+  const state = getFinanceState();
+  const today = localISODate();
+  const nextMonth = offsetMonthKey(month, 1);
+  const futureUntil = monthEndISOForAssistant(nextMonth);
+  const months = Array.from(new Set([month, nextMonth]));
+  const futureExpenses = state.expenses
+    .filter(
+      (expense) =>
+        !expense.balanceAdjustment &&
+        !expense.goalContribution &&
+        expense.date > today &&
+        expense.date <= futureUntil,
+    )
+    .map((expense) => ({
+      date: expense.date,
+      description: expense.description,
+      amount: expense.amount,
+      source: "lançamento futuro",
+    }));
+  const fixedExpenses = months
+    .flatMap((entryMonth) =>
+      fixedExpenseOccurrencesForMonth(
+        state.fixedExpenses,
+        entryMonth,
+        state.deletedFixedExpenseOccurrences,
+        state.fixedExpenseOccurrenceOverrides,
+      ),
+    )
+    .filter((expense) => expense.date > today && expense.date <= futureUntil)
+    .map((expense) => ({
+      date: expense.date,
+      description: expense.description,
+      amount: expense.amount,
+      source: "despesa fixa",
+    }));
+  const entries = [...futureExpenses, ...fixedExpenses]
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, 5);
+
+  if (!entries.length) {
+    return "Não encontrei despesas futuras ou fixas próximas para lembrar agora.";
+  }
+
+  const total = entries.reduce((sum, entry) => sum + entry.amount, 0);
+  const lines = entries.map(
+    (entry) =>
+      `- **${entry.description}**: ${formatBRL(entry.amount)} em ${assistantDateLabel(entry.date)} (${entry.source})`,
+  );
+
+  return `Você tem **${entries.length} despesa${entries.length === 1 ? "" : "s"} prevista${entries.length === 1 ? "" : "s"}** para lembrar:\n\n${lines.join("\n")}\n\nTotal previsto nessa lista: **${formatBRL(total)}**. Esses valores ajudam nas projeções, mas só entram no saldo quando a data correspondente chegar.`;
+}
+
+function isSpendingPaceQuestion(text: string) {
+  return /\b(estou|to|tô)\b.*\b(gastando)\b.*\b(rapido|rápido|mais rapido|mais rápido|normal)\b/.test(
+    text,
+  );
+}
+
+function answerSpendingPace(month: string) {
+  const state = getFinanceState();
+  const s = summarize(state, month);
+  const previousMonth = offsetMonthKey(month, -1);
+  const previous = summarize(state, previousMonth);
+  const today = new Date();
+  const currentDay = month === currentMonthKey() ? today.getDate() : 0;
+
+  if (month !== currentMonthKey() || currentDay < 7 || s.manualExpenseCount < 3) {
+    return "Ainda preciso de mais alguns lançamentos neste mês para comparar seu ritmo de gastos com segurança.";
+  }
+
+  if (previous.spent <= 0 || previous.count < 3) {
+    return `Seu gasto médio em ${monthLabel(month)} está em **${formatBRL(s.dailyAverage)} por dia**.\n\nAinda não há histórico suficiente no mês anterior para dizer com segurança se esse ritmo está acima do normal.`;
+  }
+
+  const previousMonthDays = new Date(
+    Number(previousMonth.slice(0, 4)),
+    Number(previousMonth.slice(5, 7)),
+    0,
+  ).getDate();
+  const previousDailyAverage = previous.spent / previousMonthDays;
+  const differencePercent =
+    previousDailyAverage > 0
+      ? Math.round(((s.dailyAverage - previousDailyAverage) / previousDailyAverage) * 100)
+      : 0;
+
+  if (differencePercent >= 15) {
+    return `Sim, seu ritmo está mais acelerado.\n\nEm ${monthLabel(month)}, você está gastando em média **${formatBRL(s.dailyAverage)} por dia**. No mês anterior, a média foi **${formatBRL(previousDailyAverage)} por dia**.\n\nIsso representa cerca de **${differencePercent}% acima** do ritmo anterior. Vale acompanhar os próximos gastos para não perder margem no fim do mês.`;
+  }
+
+  if (differencePercent <= -15) {
+    return `Seu ritmo está mais leve que no mês anterior.\n\nAgora você está gastando em média **${formatBRL(s.dailyAverage)} por dia**. No mês anterior, a média foi **${formatBRL(previousDailyAverage)} por dia**.\n\nIsso representa cerca de **${Math.abs(differencePercent)}% abaixo** do ritmo anterior.`;
+  }
+
+  return `Seu ritmo está parecido com o mês anterior.\n\nEm ${monthLabel(month)}, sua média está em **${formatBRL(s.dailyAverage)} por dia**. No mês anterior, foi **${formatBRL(previousDailyAverage)} por dia**.`;
+}
+
 function isBalanceAdjustmentRequest(text: string) {
   const hasBalanceTarget = /\bsaldo\b/.test(text);
   const hasAdjustmentVerb =
@@ -2627,9 +2768,23 @@ export function answerLocally(
       "quanto seria o ideal para gastar hoje",
       "quanto devo gastar hoje",
       "quanto posso gastar hoje",
+      "quanto posso gastar por dia",
+      "quanto ainda posso gastar por dia",
     ])
   ) {
     return { text: answerIdealDailySpend(month) };
+  }
+
+  if (isMonthlyWeightQuestion(normalized)) {
+    return { text: answerMonthlyWeight(month) };
+  }
+
+  if (isFutureReminderQuestion(normalized)) {
+    return { text: answerFutureReminder(month) };
+  }
+
+  if (isSpendingPaceQuestion(normalized)) {
+    return { text: answerSpendingPace(month) };
   }
 
   if (includesAny(normalized, FIXED_EXPENSE_WORDS)) {
