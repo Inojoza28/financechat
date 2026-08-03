@@ -220,6 +220,22 @@ export function ChatWindow() {
 
   const busy = status === "submitted";
   const summary = summarize(state, selectedMonth);
+  const summaryLimitPercent =
+    summary.spendingLimit && summary.spendingLimit > 0
+      ? (summary.spent / summary.spendingLimit) * 100
+      : 0;
+  const summaryButtonToneClass =
+    !summary.spendingLimit || summaryLimitPercent < 80
+      ? "border-primary/20 bg-primary/5 text-primary hover:border-primary/35 hover:bg-primary/10 dark:border-primary/25 dark:bg-primary/10 dark:text-primary"
+      : summaryLimitPercent < 90
+        ? "border-amber-300/70 bg-amber-50 text-amber-700 hover:border-amber-400/80 hover:bg-amber-100/80 dark:border-amber-400/25 dark:bg-amber-400/10 dark:text-amber-300 dark:hover:bg-amber-400/15"
+        : "border-red-300/70 bg-red-50 text-red-700 hover:border-red-400/80 hover:bg-red-100/80 dark:border-red-400/25 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15";
+  const summaryLimitTextClass =
+    !summary.spendingLimit || summaryLimitPercent < 80
+      ? "text-muted-foreground"
+      : summaryLimitPercent < 90
+        ? "text-amber-700 dark:text-amber-300"
+        : "text-red-700 dark:text-red-300";
   const lastMessage = messages.at(-1);
   const lastAssistantMessage = lastMessage?.role === "assistant" ? lastMessage : null;
   const contextualAction = useMemo<QuickAction | null>(() => {
@@ -894,12 +910,17 @@ export function ChatWindow() {
                     </span>
                     <span className="block truncate text-[11px] font-semibold text-foreground">
                       {formatBRL(summary.spent)}
+                      {summary.spendingLimit ? (
+                        <span className={`ml-1 text-[10px] font-medium ${summaryLimitTextClass}`}>
+                          ({summary.limitUsedPercent}%)
+                        </span>
+                      ) : null}
                     </span>
                   </span>
                   <button
                     type="button"
                     onClick={() => setMobileSummaryOpen((open) => !open)}
-                    className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1 rounded-full border border-primary/20 bg-primary/5 px-2.5 text-[11px] font-medium text-primary transition-colors hover:border-primary/35 hover:bg-primary/10"
+                    className={`inline-flex h-8 shrink-0 cursor-pointer items-center gap-1 rounded-full border px-2.5 text-[11px] font-medium transition-colors ${summaryButtonToneClass}`}
                     aria-expanded={mobileSummaryOpen}
                     aria-label={
                       mobileSummaryOpen ? "Ocultar resumo financeiro" : "Mostrar resumo financeiro"
@@ -954,7 +975,11 @@ export function ChatWindow() {
                         <span className="block text-[10px] font-medium text-muted-foreground">
                           Disponível
                         </span>
-                        <span className="block truncate text-[11px] font-semibold text-foreground">
+                        <span
+                          className={`block truncate text-[11px] font-semibold ${
+                            summary.spendingLimit ? summaryLimitTextClass : "text-foreground"
+                          }`}
+                        >
                           {summary.spendingLimit
                             ? formatBRL(Math.max(0, summary.limitRemaining ?? 0))
                             : "-"}
