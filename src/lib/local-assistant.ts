@@ -1910,25 +1910,45 @@ function answerGoalCommand(text: string, amount: number | null, month: string) {
 function buildGoalContributionSuggestion(revenueAmount: number, month: string) {
   const state = getFinanceState();
   if (!state.goalsEnabled) return "";
+  if (revenueAmount < 50) return "";
 
-  const candidate = goalsWithProgress(state).find((goal) => goal.remaining > 0);
-  if (!candidate || revenueAmount < 50) return "";
-
-  const suggestedAmount = Math.min(
-    candidate.remaining,
-    Math.max(10, Math.round(revenueAmount * 0.1 * 100) / 100),
-  );
+  const suggestedAmount = Math.max(10, Math.round(revenueAmount * 0.1 * 100) / 100);
   if (suggestedAmount <= 0) return "";
+
+  const openGoals = goalsWithProgress(state).filter((goal) => goal.remaining > 0);
+  const candidate = pickGoalForContributionSuggestion(openGoals, suggestedAmount);
+  if (!candidate) return "";
+
+  const finalSuggestedAmount = Math.min(candidate.remaining, suggestedAmount);
+  if (finalSuggestedAmount <= 0) return "";
 
   financeActions.setPendingAction({
     type: "goalContribution",
     goalId: candidate.id,
-    amount: suggestedAmount,
+    amount: finalSuggestedAmount,
     month,
     createdAt: new Date().toISOString(),
   });
 
-  return `\n\nVocê acabou de receber **${formatBRL(revenueAmount)}**. Que tal separar **${formatBRL(suggestedAmount)}** para sua meta **${candidate.name}**? Responda **sim** para confirmar ou **não** para deixar para depois.`;
+  return `\n\nVocê acabou de receber **${formatBRL(revenueAmount)}**. Que tal separar **${formatBRL(finalSuggestedAmount)}** para sua meta **${candidate.name}**? Responda **sim** para confirmar ou **não** para deixar para depois.`;
+}
+
+function pickGoalForContributionSuggestion(
+  goals: ReturnType<typeof goalsWithProgress>,
+  amount: number,
+) {
+  return goals.slice().sort((a, b) => {
+    const aCompletes = a.remaining <= amount;
+    const bCompletes = b.remaining <= amount;
+
+    if (aCompletes !== bCompletes) return aCompletes ? -1 : 1;
+    if (aCompletes && bCompletes && a.remaining !== b.remaining) {
+      return a.remaining - b.remaining;
+    }
+    if (a.percent !== b.percent) return b.percent - a.percent;
+    if (a.remaining !== b.remaining) return a.remaining - b.remaining;
+    return b.createdAt.localeCompare(a.createdAt);
+  })[0];
 }
 
 function answerFixedExpenseHelp(text: string) {
