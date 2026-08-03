@@ -72,6 +72,7 @@ const FALLBACK_RESPONSE =
 
 const SMART_SUGGESTIONS_SEEN_KEY = "heyfin.smart-suggestions.seen.v1";
 const RECENT_SPENDING_WINDOW_MS = 4 * 60 * 60 * 1000;
+const SMART_SUGGESTION_IDLE_MS = 8 * 60 * 1000;
 
 type SpeechRecognitionResult = ArrayLike<{ transcript: string }> & {
   isFinal?: boolean;
@@ -438,7 +439,7 @@ export function ChatWindow() {
     state.fixedExpenses,
     state.showSmartSuggestions,
     summary.balance,
-    summary.byCategory,
+    summary.byCategory.length,
     summary.count,
     summary.limitStatus,
     summary.manualExpenseCount,
@@ -446,29 +447,37 @@ export function ChatWindow() {
   ]);
 
   useEffect(() => {
-    if (!state.showSmartSuggestions || !lastAssistantMessage || !contextualAction) {
-      setActiveSmartSuggestion(null);
-      return;
-    }
-
     if (
-      seenSmartSuggestions.includes(contextualAction.id) &&
-      activeSmartSuggestion?.id !== contextualAction.id
+      !state.showSmartSuggestions ||
+      !lastAssistantMessage ||
+      !contextualAction ||
+      input.trim() ||
+      busy
     ) {
       setActiveSmartSuggestion(null);
       return;
     }
 
-    setActiveSmartSuggestion(contextualAction);
-    setSeenSmartSuggestions((current) => {
-      if (current.includes(contextualAction.id)) return current;
-      const next = [...current, contextualAction.id].slice(-120);
-      writeSeenSmartSuggestions(next);
-      return next;
-    });
+    if (seenSmartSuggestions.includes(contextualAction.id)) {
+      setActiveSmartSuggestion(null);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setActiveSmartSuggestion(contextualAction);
+      setSeenSmartSuggestions((current) => {
+        if (current.includes(contextualAction.id)) return current;
+        const next = [...current, contextualAction.id].slice(-120);
+        writeSeenSmartSuggestions(next);
+        return next;
+      });
+    }, SMART_SUGGESTION_IDLE_MS);
+
+    return () => window.clearTimeout(timeoutId);
   }, [
-    activeSmartSuggestion?.id,
     contextualAction,
+    busy,
+    input,
     lastAssistantMessage,
     seenSmartSuggestions,
     state.showSmartSuggestions,
