@@ -9,6 +9,8 @@
   Gauge,
   Info,
   Moon,
+  PiggyBank,
+  CircleOff,
   RotateCcw,
   ShieldAlert,
   Sparkles,
@@ -17,6 +19,7 @@
   Upload,
   UserRound,
   WalletCards,
+  X,
 } from "lucide-react";
 import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -350,7 +353,7 @@ function SettingsContent() {
                 enabled: false,
                 title: "Desativadas",
                 description: "O chat fica sem recomendações automáticas.",
-                icon: Moon,
+                icon: X,
               },
             ].map((option) => {
               const selected = state.showSmartSuggestions === option.enabled;
@@ -404,6 +407,68 @@ function SettingsContent() {
                 </button>
               );
             })}
+          </div>
+        </div>
+      </Section>
+
+      <Section
+        icon={PiggyBank}
+        title="Cofrinho"
+        description="Ative metas financeiras quando quiser separar dinheiro para objetivos específicos."
+      >
+        <div className="rounded-2xl border border-border/55 bg-background/65 p-3 shadow-[inset_0_1px_0_hsl(var(--foreground)/0.035)] dark:bg-surface-muted/35 dark:shadow-none">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-[14px] font-semibold leading-tight">Metas financeiras</p>
+                <span
+                  className={`rounded-full border px-2 py-0.5 text-[10.5px] font-medium ${
+                    state.goalsEnabled
+                      ? "border-emerald-300/55 bg-emerald-50 text-emerald-700 dark:border-success/30 dark:bg-success/[0.12] dark:text-success"
+                      : "border-border/60 bg-secondary/70 text-muted-foreground"
+                  }`}
+                >
+                  {state.goalsEnabled ? "Ativado" : "Desativado"}
+                </span>
+              </div>
+              <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+                Quando ativo, o Dashboard mostra suas metas e o Fin pode sugerir aportes após
+                receitas.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 sm:w-[220px]">
+              {[
+                { enabled: false, label: "Desativado", icon: CircleOff },
+                { enabled: true, label: "Ativado", icon: Check },
+              ].map((option) => {
+                const selected = state.goalsEnabled === option.enabled;
+                const OptionIcon = option.icon;
+
+                return (
+                  <button
+                    key={option.label}
+                    type="button"
+                    onClick={() => {
+                      if (selected) return;
+                      financeActions.setGoalsEnabled(option.enabled);
+                      toast.success(option.enabled ? "Cofrinho ativado." : "Cofrinho desativado.");
+                    }}
+                    className={`inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-[12.5px] font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 ${
+                      selected
+                        ? option.enabled
+                          ? "border-emerald-400/30 bg-emerald-500/[0.10] text-emerald-700 shadow-[0_8px_20px_hsl(155_70%_38%/0.08)] dark:bg-success/[0.13] dark:text-success dark:shadow-none"
+                          : "border-border/70 bg-secondary text-foreground"
+                        : "border-border/45 bg-surface/55 text-muted-foreground hover:border-primary/20 hover:bg-surface hover:text-foreground dark:bg-background/25 dark:hover:bg-background/40"
+                    }`}
+                    aria-pressed={selected}
+                  >
+                    <OptionIcon className="size-4 shrink-0" strokeWidth={2.35} />
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       </Section>

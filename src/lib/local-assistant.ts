@@ -8,6 +8,8 @@
   forecastUntilDate,
   formatBRL,
   getFinanceState,
+  goalProgress,
+  goalsWithProgress,
   incomeLabel,
   isIncomeAutoDepositEnabled,
   localISODate,
@@ -18,6 +20,7 @@
   recurringIncomeOccurrencesForMonth,
   summarize,
   type Expense,
+  type FinancialGoal,
   type FinanceState,
   type IncomePeriod,
   type Revenue,
@@ -198,6 +201,18 @@ const SAVINGS_GOAL_WORDS = [
   "reservar dinheiro",
   "meta de economia",
   "meta para juntar",
+];
+
+const GOAL_WORDS = [
+  "meta",
+  "metas",
+  "cofrinho",
+  "cofrinhos",
+  "juntar",
+  "guardar",
+  "economizar",
+  "poupar",
+  "reservar",
 ];
 
 const FIXED_EXPENSE_WORDS = [
@@ -962,6 +977,10 @@ function expenseLine(expense: Expense) {
     return `Ajuste de saldo: ${difference >= 0 ? "+" : "-"} ${formatBRL(Math.abs(difference))} — ${expense.description}`;
   }
 
+  if (expense.goalContribution) {
+    return `Aporte para meta: ${formatBRL(expense.amount)} — ${expense.description}`;
+  }
+
   return `${formatBRL(expense.amount)} em ${expense.category}: ${expense.description}`;
 }
 
@@ -992,7 +1011,11 @@ function rememberSequentialSpendingAlert(key: string) {
 function buildSequentialSpendingAlert(newExpenses: Expense[]) {
   const today = localISODate();
   const hasCurrentExpense = newExpenses.some(
-    (expense) => expense.amount > 0 && !expense.adjustment && expense.date === today,
+    (expense) =>
+      expense.amount > 0 &&
+      !expense.adjustment &&
+      !expense.goalContribution &&
+      expense.date === today,
   );
 
   if (!hasCurrentExpense) return "";
@@ -1003,7 +1026,14 @@ function buildSequentialSpendingAlert(newExpenses: Expense[]) {
   const state = getFinanceState();
   const recentExpenses = state.expenses
     .filter((expense) => {
-      if (expense.amount <= 0 || expense.adjustment || expense.date > today) return false;
+      if (
+        expense.amount <= 0 ||
+        expense.adjustment ||
+        expense.goalContribution ||
+        expense.date > today
+      ) {
+        return false;
+      }
       const createdAtMs = new Date(expense.createdAt).getTime();
       return (
         Number.isFinite(createdAtMs) &&
@@ -1088,7 +1118,7 @@ function formatExpenseConfirmation(expense: Expense, month: string, isFuture = f
 
 function formatRevenueConfirmation(revenue: Revenue, month: string) {
   const s = summarize(getFinanceState(), month);
-  return `Receita extra registrada: **${formatBRL(revenue.amount)}**.\n\nEla foi somada ao seu saldo sem alterar a renda recorrente cadastrada. Extras em ${monthLabel(month)}: **${formatBRL(s.extraIncome)}**. Saldo disponível acumulado: **${formatBRL(s.balance)}**.`;
+  return `Receita extra registrada: **${formatBRL(revenue.amount)}**.\n\nEla foi somada ao seu saldo sem alterar a renda recorrente cadastrada. Extras em ${monthLabel(month)}: **${formatBRL(s.extraIncome)}**. Saldo disponível acumulado: **${formatBRL(s.balance)}**.${buildGoalContributionSuggestion(revenue.amount, month)}`;
 }
 
 function incomePeriod(text: string): IncomePeriod {
@@ -1320,6 +1350,7 @@ function registerMultipleRevenues(text: string, month: string) {
     `Extras em ${monthLabel(month)}: **${formatBRL(s.extraIncome)}**. Saldo disponível acumulado: **${formatBRL(s.balance)}**.`,
     "",
     "Essas entradas foram somadas ao saldo sem alterar a renda recorrente cadastrada.",
+    buildGoalContributionSuggestion(total, month).trim(),
   ].join("\n");
 }
 
@@ -1392,6 +1423,7 @@ function registerMixedFinancialEntries(text: string, month: string) {
       ? "As despesas futuras ficaram em **Lançamentos futuros** no Dashboard e ainda não foram debitadas do saldo atual."
       : `Saldo disponível acumulado: **${formatBRL(s.balance)}**.`,
     sequentialAlert,
+    buildGoalContributionSuggestion(totalRevenue, month).trim(),
   ].join("\n");
 }
 
@@ -1595,6 +1627,42 @@ function answerPendingAction(text: string, month: string) {
     return `Pronto, criei o lançamento **Ajuste de saldo** e ${actionText} para sincronizar seu saldo.\n\nEle aparece em **Últimos lançamentos** como uma correção manual, sem entrar como gasto do mês ou receita extra.\n\nSaldo disponível atualizado: **${formatBRL(s.balance)}**.`;
   }
 
+  if (pending.type === "goalContribution") {
+    if (!getFinanceState().goalsEnabled) {
+      financeActions.setPendingAction(null);
+      return "O Cofrinho está desativado em Ajustes, então não registrei nenhum aporte. Você pode ativar as Metas financeiras quando quiser usar esse recurso.";
+    }
+
+    if (isDenial(text)) {
+      financeActions.setPendingAction(null);
+      return "Tudo certo, deixei o dinheiro disponível no saldo por enquanto.";
+    }
+
+    if (!isConfirmation(text)) return null;
+
+    const goal = getFinanceState().goals.find((item) => item.id === pending.goalId);
+    if (!goal) {
+      financeActions.setPendingAction(null);
+      return "Essa meta não está mais disponível. Não registrei nenhum aporte.";
+    }
+
+    const contribution = financeActions.addGoalContribution({
+      goalId: goal.id,
+      amount: pending.amount,
+      description: `Aporte para ${goal.name}`,
+    });
+    financeActions.setPendingAction(null);
+
+    if (!contribution) {
+      return "Não consegui registrar esse aporte agora. Confira suas metas no Dashboard e tente novamente.";
+    }
+
+    const progress = goalProgress(getFinanceState(), goal);
+    const s = summarize(getFinanceState(), pending.month);
+
+    return `Pronto, separei **${formatBRL(contribution.amount)}** para a meta **${goal.name}**.\n\nProgresso atual: **${progress.percent}%** (${formatBRL(progress.saved)} de ${formatBRL(progress.targetAmount)}). Ainda faltam **${formatBRL(progress.remaining)}**.\n\nSaldo disponível acumulado: **${formatBRL(s.balance)}**.`;
+  }
+
   const expense = state.expenses.find((item) => item.id === pending.expenseId);
   if (!expense) {
     financeActions.setPendingAction(null);
@@ -1640,7 +1708,227 @@ function isSavingsGoalRequest(text: string) {
 }
 
 function answerSavingsGoalHelp() {
-  return "Entendi. Hoje eu ainda não consigo criar uma meta para juntar dinheiro diretamente pelo chat.\n\nPara calcular isso com mais precisão, vá até o **Dashboard** e use a calculadora no canto inferior direito. Ela pode te ajudar a simular quanto guardar, dividir valores por período e planejar melhor esse objetivo.";
+  if (!getFinanceState().goalsEnabled) {
+    return "O recurso de **Metas financeiras** está desativado no momento.\n\nSe quiser usar o Cofrinho para criar objetivos, acompanhar progresso e registrar aportes, ative essa opção em **Ajustes > Cofrinho**.";
+  }
+
+  return "Sim. Agora você pode usar **Metas financeiras** no Dashboard para criar cofrinhos, acompanhar progresso e registrar aportes.\n\nPelo chat, também consigo ajudar com comandos como `Quero juntar R$ 1.000 para viagem`, `Adicionar R$ 100 para minha meta viagem` ou `Quais metas eu tenho?`.";
+}
+
+function normalizedGoalName(goal: Pick<FinancialGoal, "name">) {
+  return normalize(goal.name).replace(/\s+/g, " ").trim();
+}
+
+function findGoalMention(text: string, goals: FinancialGoal[]) {
+  const normalized = normalize(text);
+  const orderedGoals = goals.slice().sort((a, b) => b.name.length - a.name.length);
+  return (
+    orderedGoals.find((goal) => {
+      const name = normalizedGoalName(goal);
+      return name.length >= 2 && normalized.includes(name);
+    }) ?? null
+  );
+}
+
+function extractGoalName(text: string, amount: number) {
+  const normalizedAmount = formatBRL(amount)
+    .replace("R$", "")
+    .replace(/\s/g, "")
+    .replace(".", "\\.")
+    .replace(",", "[,.]");
+  const cleaned = text
+    .replace(new RegExp(`(?:r\\$\\s*)?${normalizedAmount}\\s*(?:reais?|brl)?`, "i"), " ")
+    .replace(
+      /\b(quero|pretendo|preciso|vou|para|pra|pro|minha|meu|meta|cofrinho|de|uma|um)\b/gi,
+      " ",
+    )
+    .replace(
+      /\b(juntar|guardar|economizar|poupar|reservar|adicionar|adiciona|colocar|coloca)\b/gi,
+      " ",
+    )
+    .replace(/[.,;:!?]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const afterPara = text.match(
+    /\b(?:para|pra|pro)\s+(?:minha\s+meta\s+|meu\s+cofrinho\s+)?(.+)$/i,
+  )?.[1];
+  const candidate = (afterPara || cleaned)
+    .replace(/(?:r\$\s*)?\d+(?:[,.]\d{1,2})?\s*(?:reais?|brl)?/gi, " ")
+    .replace(/[.,;:!?]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return candidate.slice(0, 80) || "Meta financeira";
+}
+
+function isGoalListRequest(text: string) {
+  return (
+    includesAny(text, ["quais metas", "listar metas", "minhas metas", "metas que tenho"]) ||
+    /\b(quais|listar|liste|mostrar|mostre|ver)\b.*\b(metas|cofrinhos)\b/.test(text)
+  );
+}
+
+function isGoalQuery(text: string) {
+  const hasGoalMention = Boolean(findGoalMention(text, getFinanceState().goals));
+  return (
+    /\b(quanto falta|quanto ja guardei|quanto já guardei|progresso)\b/.test(text) &&
+    (includesAny(text, GOAL_WORDS) || hasGoalMention)
+  );
+}
+
+function isGoalMonthlyPlanQuery(text: string) {
+  return /\bquanto\b.*\b(guardar|juntar|economizar|poupar)\b.*\bpor mes\b/.test(text);
+}
+
+function answerGoalsList() {
+  const goals = goalsWithProgress(getFinanceState());
+  if (!goals.length) {
+    return "Você ainda não tem metas financeiras cadastradas.\n\nPara começar, vá ao **Dashboard** e crie uma meta, ou me diga algo como `Quero juntar R$ 1.000 para viagem`.";
+  }
+
+  return [
+    `Você tem **${goals.length} meta${goals.length === 1 ? "" : "s"} financeira${goals.length === 1 ? "" : "s"}**:`,
+    "",
+    ...goals.map(
+      (goal) =>
+        `- **${goal.name}**: ${goal.percent}% concluída, ${formatBRL(goal.saved)} guardados de ${formatBRL(goal.targetAmount)}. Faltam ${formatBRL(goal.remaining)}.`,
+    ),
+  ].join("\n");
+}
+
+function answerGoalProgressQuery(text: string) {
+  const goals = getFinanceState().goals;
+  if (!goals.length) return answerGoalsList();
+
+  const goal = findGoalMention(text, goals) ?? (goals.length === 1 ? goals[0] : null);
+  if (!goal) {
+    return "Qual meta você quer consultar? Me diga o nome, por exemplo: `Quanto falta para minha viagem?`.";
+  }
+
+  const progress = goalProgress(getFinanceState(), goal);
+
+  return `Sua meta **${progress.name}** está em **${progress.percent}%**.\n\nVocê já guardou **${formatBRL(progress.saved)}** de **${formatBRL(progress.targetAmount)}**. Ainda faltam **${formatBRL(progress.remaining)}** para concluir.`;
+}
+
+function answerGoalMonthlyPlan(text: string) {
+  const state = getFinanceState();
+  const goals = state.goals;
+  if (!goals.length) return answerGoalsList();
+
+  const goal = findGoalMention(text, goals) ?? (goals.length === 1 ? goals[0] : null);
+  if (!goal) {
+    return "Consigo calcular isso. Qual meta você quer planejar?";
+  }
+
+  const target = parseTargetMonth(text);
+  if (!target || target.status !== "current-or-future") {
+    return "Consigo calcular quanto guardar por mês, sim. Me diga até qual mês, por exemplo: `Quanto preciso guardar por mês para minha viagem até dezembro?`.";
+  }
+
+  const progress = goalProgress(state, goal);
+  const current = monthKey(localISODate());
+  const [currentYear, currentMonth] = current.split("-").map(Number);
+  const [targetYear, targetMonth] = target.month.split("-").map(Number);
+  const monthsLeft = Math.max(1, (targetYear - currentYear) * 12 + targetMonth - currentMonth + 1);
+  const monthly = progress.remaining / monthsLeft;
+
+  return `Para alcançar **${progress.name}** até **${monthLabel(target.month)}**, você precisaria guardar cerca de **${formatBRL(monthly)} por mês**.\n\nBase do cálculo: faltam **${formatBRL(progress.remaining)}** divididos em **${monthsLeft} mês${monthsLeft === 1 ? "" : "es"}**.`;
+}
+
+function createGoalFromChat(text: string, amount: number) {
+  const name = extractGoalName(text, amount);
+  const goal = financeActions.addGoal({ name, targetAmount: amount });
+
+  return `Meta criada: **${goal.name}** com objetivo de **${formatBRL(goal.targetAmount)}**.\n\nEla já aparece em **Metas financeiras**, no Dashboard. Quando quiser separar dinheiro para ela, você pode usar **Aportar** no Dashboard ou me dizer algo como \`Adicionar R$ 100 para minha meta ${goal.name}\`.`;
+}
+
+function addGoalContributionFromChat(text: string, amount: number, month: string) {
+  const state = getFinanceState();
+  const goals = state.goals;
+  if (!goals.length) {
+    return "Você ainda não tem metas cadastradas.\n\nCrie uma em **Metas financeiras**, no Dashboard, ou me diga algo como `Quero juntar R$ 1.000 para viagem`.";
+  }
+
+  const goal = findGoalMention(text, goals) ?? (goals.length === 1 ? goals[0] : null);
+  if (!goal) {
+    return `Para qual meta você quer enviar esse aporte de **${formatBRL(amount)}**?\n\n${goals.map((item) => `- ${item.name}`).join("\n")}`;
+  }
+
+  const currentBalance = summarize(state, month).balance;
+  if (amount > currentBalance) {
+    return `Esse aporte é maior que seu saldo disponível atual (**${formatBRL(currentBalance)}**).\n\nPara manter o controle seguro, não registrei a movimentação. Você pode escolher um valor menor ou ajustar o saldo antes.`;
+  }
+
+  const contribution = financeActions.addGoalContribution({
+    goalId: goal.id,
+    amount,
+    description: `Aporte para ${goal.name}`,
+  });
+  if (!contribution)
+    return "Não consegui registrar esse aporte agora. Confira a meta no Dashboard.";
+
+  const progress = goalProgress(getFinanceState(), goal);
+  const s = summarize(getFinanceState(), month);
+
+  return `Aporte registrado: **${formatBRL(amount)}** para **${goal.name}**.\n\nProgresso da meta: **${progress.percent}%** (${formatBRL(progress.saved)} de ${formatBRL(progress.targetAmount)}). Ainda faltam **${formatBRL(progress.remaining)}**.\n\nEsse aporte apareceu em **Últimos lançamentos** com o badge **Meta**. Saldo disponível acumulado: **${formatBRL(s.balance)}**.`;
+}
+
+function answerGoalCommand(text: string, amount: number | null, month: string) {
+  const normalized = normalize(text);
+  if (!getFinanceState().goalsEnabled) {
+    return includesAny(normalized, GOAL_WORDS) || isGoalListRequest(normalized)
+      ? answerSavingsGoalHelp()
+      : null;
+  }
+
+  if (isGoalListRequest(normalized)) return answerGoalsList();
+  if (isGoalMonthlyPlanQuery(normalized)) return answerGoalMonthlyPlan(text);
+  if (isGoalQuery(normalized)) return answerGoalProgressQuery(text);
+
+  if (!amount || !includesAny(normalized, GOAL_WORDS)) return null;
+
+  const hasContributionVerb =
+    /\b(adicionar|adiciona|colocar|coloca|botar|bota|aporte|aportar)\b/.test(normalized);
+  const hasCreationSignal =
+    (/\b(quero|pretendo|preciso|meta para|meta de)\b/.test(normalized) ||
+      /^(juntar|guardar|economizar|poupar)\b/.test(normalized)) &&
+    /\b(juntar|guardar|economizar|poupar)\b/.test(normalized);
+  const hasGoalMention = Boolean(findGoalMention(text, getFinanceState().goals));
+
+  if (hasContributionVerb || hasGoalMention || normalized.includes("cofrinho")) {
+    return addGoalContributionFromChat(text, amount, month);
+  }
+
+  if (hasCreationSignal) {
+    return createGoalFromChat(text, amount);
+  }
+
+  return null;
+}
+
+function buildGoalContributionSuggestion(revenueAmount: number, month: string) {
+  const state = getFinanceState();
+  if (!state.goalsEnabled) return "";
+
+  const candidate = goalsWithProgress(state).find((goal) => goal.remaining > 0);
+  if (!candidate || revenueAmount < 50) return "";
+
+  const suggestedAmount = Math.min(
+    candidate.remaining,
+    Math.max(10, Math.round(revenueAmount * 0.1 * 100) / 100),
+  );
+  if (suggestedAmount <= 0) return "";
+
+  financeActions.setPendingAction({
+    type: "goalContribution",
+    goalId: candidate.id,
+    amount: suggestedAmount,
+    month,
+    createdAt: new Date().toISOString(),
+  });
+
+  return `\n\nVocê acabou de receber **${formatBRL(revenueAmount)}**. Que tal separar **${formatBRL(suggestedAmount)}** para sua meta **${candidate.name}**? Responda **sim** para confirmar ou **não** para deixar para depois.`;
 }
 
 function answerFixedExpenseHelp(text: string) {
@@ -1786,6 +2074,9 @@ function answerProjectionUntilPaymentDate(
   }
   if (forecast.fixedExpenses > 0) {
     details.push(`despesas fixas: **${formatBRL(forecast.fixedExpenses)}**`);
+  }
+  if (forecast.goalContributions > 0) {
+    details.push(`aportes para metas: **${formatBRL(forecast.goalContributions)}**`);
   }
 
   const detailsText = details.length ? `\n\nDetalhes considerados: ${details.join("; ")}.` : "";
@@ -1994,6 +2285,9 @@ function answerSpecificFutureMonthProjection(text: string) {
   if (forecast.fixedExpenses > 0) {
     details.push(`despesas fixas: **${formatBRL(forecast.fixedExpenses)}**`);
   }
+  if (forecast.goalContributions > 0) {
+    details.push(`aportes para metas: **${formatBRL(forecast.goalContributions)}**`);
+  }
   const detailsText = details.length ? `\n\nDetalhes considerados: ${details.join("; ")}.` : "";
 
   return `Projetando até o fim de **${monthLabel(forecast.targetMonth)}**, a estimativa é você ficar com **${formatBRL(forecast.projectedBalance)}**.\n\nComo cheguei nesse valor:\n- Saldo acumulado atual: **${formatBRL(forecast.currentBalance)}**\n- Entradas previstas até lá: **${incomeText}**\n- Saídas previstas até lá: **${expenseText}**\n\nCálculo: ${formatBRL(forecast.currentBalance)} + ${formatBRL(forecast.projectedIncome)} - ${formatBRL(forecast.projectedExpenses)} = **${formatBRL(forecast.projectedBalance)}**.${detailsText}\n\nEssa é uma projeção: novos gastos, receitas ou ajustes podem mudar esse valor.`;
@@ -2146,7 +2440,11 @@ function answerSpendingQuery(text: string) {
 
   const state = getFinanceState();
   const expenses = state.expenses.filter(
-    (expense) => expense.date >= period.start && expense.date <= period.end,
+    (expense) =>
+      !expense.balanceAdjustment &&
+      !expense.goalContribution &&
+      expense.date >= period.start &&
+      expense.date <= period.end,
   );
   const months = Array.from(new Set([monthKey(period.start), monthKey(period.end)]));
   const fixedExpenses = months
@@ -2186,7 +2484,9 @@ function isImpactSimulationRequest(text: string) {
   const hasSimulationIntent = /\b(simula|simule|simular|simulacao)\b/.test(text);
   const hasDecisionIntent = /\b(posso|consigo|da para|vale a pena)\b/.test(text);
   const hasPurchaseIntent =
-    /\b(comprar|compra|gastar|gasto|pagar|pagamento|adquirir|item|produto)\b/.test(text);
+    /\b(comprar|compra|gastar|gastasse|gastaria|gasto|pagar|pagamento|adquirir|item|produto)\b/.test(
+      text,
+    );
 
   return hasPurchaseIntent && (hasConditionalIntent || hasSimulationIntent || hasDecisionIntent);
 }
@@ -2276,6 +2576,11 @@ export function answerLocally(
 
   if (isEditHelpRequest(normalized)) {
     return { text: answerEditHelp() };
+  }
+
+  const goalCommand = answerGoalCommand(text, amount, month);
+  if (goalCommand) {
+    return { text: goalCommand };
   }
 
   if (isSavingsGoalRequest(normalized)) {
@@ -2372,6 +2677,17 @@ export function answerLocally(
     return { text: answerNextMonthProjection(month) };
   }
 
+  if (
+    isImpactSimulationRequest(normalized) ||
+    normalized.includes("consigo") ||
+    normalized.includes("posso") ||
+    normalized.includes("da para") ||
+    normalized.includes("simula")
+  ) {
+    const simulation = simulateSpend(text, month);
+    if (simulation) return { text: simulation };
+  }
+
   const mixedMovements = registerMixedFinancialEntries(text, month);
   if (mixedMovements) return { text: mixedMovements };
 
@@ -2387,17 +2703,6 @@ export function answerLocally(
 
   if (includesAny(normalized, BASE_INCOME_WORDS)) {
     return { text: registerIncome(text) };
-  }
-
-  if (
-    isImpactSimulationRequest(normalized) ||
-    normalized.includes("consigo") ||
-    normalized.includes("posso") ||
-    normalized.includes("da para") ||
-    normalized.includes("simula")
-  ) {
-    const simulation = simulateSpend(text, month);
-    if (simulation) return { text: simulation };
   }
 
   if (

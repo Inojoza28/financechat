@@ -48,7 +48,16 @@ export type Expense = {
   createdAt: string;
   adjustment?: boolean;
   balanceAdjustment?: boolean;
+  goalContribution?: boolean;
+  goalId?: string;
   manual?: boolean;
+};
+
+export type FinancialGoal = {
+  id: string;
+  name: string;
+  targetAmount: number;
+  createdAt: string;
 };
 
 export type FixedExpense = {
@@ -109,12 +118,20 @@ export type PendingAssistantAction =
       difference: number;
       month: string;
       createdAt: string;
+    }
+  | {
+      type: "goalContribution";
+      goalId: string;
+      amount: number;
+      month: string;
+      createdAt: string;
     };
 
 export type FinanceState = {
   assistantName: string;
   theme: ThemeMode;
   showSmartSuggestions: boolean;
+  goalsEnabled: boolean;
   currency: string;
   income: Income | null;
   spendingLimit: number | null;
@@ -125,6 +142,7 @@ export type FinanceState = {
   fixedExpenseOccurrenceOverrides: FixedExpenseOccurrenceOverride[];
   revenues: Revenue[];
   incomeOverrides: IncomeOverride[];
+  goals: FinancialGoal[];
   messages: UIMessage[];
   messagesByMonth: Record<string, UIMessage[]>;
 };
@@ -147,6 +165,7 @@ const initialState: FinanceState = {
   assistantName: "Fin",
   theme: "light",
   showSmartSuggestions: true,
+  goalsEnabled: false,
   currency: "BRL",
   income: null,
   spendingLimit: null,
@@ -157,6 +176,7 @@ const initialState: FinanceState = {
   fixedExpenseOccurrenceOverrides: [],
   revenues: [],
   incomeOverrides: [],
+  goals: [],
   messages: [],
   messagesByMonth: {},
 };
@@ -230,6 +250,7 @@ function rawImportedState(input: unknown): Partial<FinanceState> {
     "fixedExpenseOccurrenceOverrides",
     "revenues",
     "incomeOverrides",
+    "goals",
     "messages",
   ] as const) {
     if (key in candidate && !Array.isArray(candidate[key])) {
@@ -266,19 +287,31 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
       Boolean(expense.balanceAdjustment) ||
       normalizeText(expense.description ?? "").includes("ajuste de saldo") ||
       normalizeText(expense.category ?? "").includes("ajuste de saldo");
+    const isGoalContribution =
+      Boolean(expense.goalContribution) ||
+      normalizeText(expense.category ?? "") === "meta" ||
+      normalizeText(expense.category ?? "") === "cofrinho";
 
     return {
       ...expense,
       amount: expense.adjustment
         ? normalizeSignedMoney(expense.amount)
         : normalizeMoney(expense.amount),
-      category: isBalanceAdjustment ? "Ajuste de saldo" : normalizeCategory(expense.category),
+      category: isBalanceAdjustment
+        ? "Ajuste de saldo"
+        : isGoalContribution
+          ? "Meta"
+          : normalizeCategory(expense.category),
       description: isBalanceAdjustment
         ? expense.description?.trim() || "Saldo ajustado manualmente"
-        : expense.description?.trim() || "Despesa",
+        : isGoalContribution
+          ? expense.description?.trim() || "Aporte para meta"
+          : expense.description?.trim() || "Despesa",
       date: expense.date || localISODate(),
       createdAt: expense.createdAt || new Date().toISOString(),
       balanceAdjustment: isBalanceAdjustment || undefined,
+      goalContribution: isGoalContribution || undefined,
+      goalId: typeof expense.goalId === "string" ? expense.goalId : undefined,
       adjustment: expense.adjustment || isBalanceAdjustment || undefined,
     };
   });
@@ -333,6 +366,13 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
       createdAt: override.createdAt || new Date().toISOString(),
       deleted: Boolean(override.deleted),
     }));
+  const goals = (parsed.goals ?? []).map((goal) => ({
+    ...goal,
+    id: goal.id || uid(),
+    name: goal.name?.trim().slice(0, 80) || "Meta financeira",
+    targetAmount: normalizeMoney(goal.targetAmount),
+    createdAt: goal.createdAt || new Date().toISOString(),
+  }));
   const income = parsed.income
     ? {
         ...parsed.income,
@@ -364,6 +404,7 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
     assistantName: parsed.assistantName?.trim().slice(0, 30) || initialState.assistantName,
     theme: parsed.theme === "dark" ? "dark" : "light",
     showSmartSuggestions: parsed.showSmartSuggestions ?? initialState.showSmartSuggestions,
+    goalsEnabled: parsed.goalsEnabled ?? initialState.goalsEnabled,
     currency: parsed.currency || initialState.currency,
     income,
     spendingLimit,
@@ -374,6 +415,7 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
     fixedExpenseOccurrenceOverrides,
     revenues,
     incomeOverrides,
+    goals,
     messages: parsed.messages ?? [],
     messagesByMonth,
   };
@@ -610,6 +652,68 @@ export const financeActions = {
     write({ ...s, expenses: [...s.expenses, expense] });
     return expense;
   },
+  addGoal(input: { name: string; targetAmount: number }): FinancialGoal {
+    const goal: FinancialGoal = {
+      id: uid(),
+      name: input.name.trim().slice(0, 80) || "Meta financeira",
+      targetAmount: normalizeMoney(input.targetAmount),
+      createdAt: new Date().toISOString(),
+    };
+    const s = getFinanceState();
+    write({ ...s, goals: [...s.goals, goal] });
+    return goal;
+  },
+  updateGoal(id: string, patch: Partial<Omit<FinancialGoal, "id" | "createdAt">>) {
+    const s = getFinanceState();
+    write({
+      ...s,
+      goals: s.goals.map((goal) =>
+        goal.id === id
+          ? {
+              ...goal,
+              ...patch,
+              name: patch.name != null ? patch.name.trim().slice(0, 80) || goal.name : goal.name,
+              targetAmount:
+                patch.targetAmount != null ? normalizeMoney(patch.targetAmount) : goal.targetAmount,
+            }
+          : goal,
+      ),
+    });
+  },
+  removeGoal(id: string) {
+    const s = getFinanceState();
+    write({
+      ...s,
+      goals: s.goals.filter((goal) => goal.id !== id),
+      expenses: s.expenses.filter((expense) => expense.goalId !== id),
+    });
+  },
+  addGoalContribution(input: {
+    goalId: string;
+    amount: number;
+    description?: string;
+    date?: string | null;
+    manual?: boolean;
+  }) {
+    const s = getFinanceState();
+    const goal = s.goals.find((item) => item.id === input.goalId);
+    if (!goal) return null;
+    const amount = normalizeMoney(input.amount);
+    if (amount <= 0) return null;
+    const expense: Expense = {
+      id: uid(),
+      description: input.description?.trim().slice(0, 120) || `Aporte para ${goal.name}`,
+      amount,
+      category: "Meta",
+      date: input.date || localISODate(),
+      createdAt: new Date().toISOString(),
+      goalContribution: true,
+      goalId: goal.id,
+      manual: input.manual,
+    };
+    write({ ...s, expenses: [...s.expenses, expense] });
+    return expense;
+  },
   updateExpense(id: string, patch: Partial<Omit<Expense, "id" | "createdAt">>) {
     const s = getFinanceState();
     write({
@@ -825,6 +929,9 @@ export const financeActions = {
   },
   setShowSmartSuggestions(showSmartSuggestions: boolean) {
     write({ ...getFinanceState(), showSmartSuggestions });
+  },
+  setGoalsEnabled(goalsEnabled: boolean) {
+    write({ ...getFinanceState(), goalsEnabled });
   },
   setMessages(messages: UIMessage[]) {
     write({ ...getFinanceState(), messages });
@@ -1256,7 +1363,16 @@ export function forecastUntilDate(state: FinanceState, targetDate: string, from 
     .reduce((sum, revenue) => sum + revenue.amount, 0);
   const manualExpenses = state.expenses
     .filter(
-      (expense) => !expense.balanceAdjustment && expense.date > today && expense.date <= targetDate,
+      (expense) =>
+        !expense.balanceAdjustment &&
+        !expense.goalContribution &&
+        expense.date > today &&
+        expense.date <= targetDate,
+    )
+    .reduce((sum, expense) => sum + expense.amount, 0);
+  const goalContributions = state.expenses
+    .filter(
+      (expense) => expense.goalContribution && expense.date > today && expense.date <= targetDate,
     )
     .reduce((sum, expense) => sum + expense.amount, 0);
   const fixedExpenseOccurrences = months
@@ -1271,7 +1387,11 @@ export function forecastUntilDate(state: FinanceState, targetDate: string, from 
     .filter((expense) => expense.date > today && expense.date <= targetDate);
   const fixedExpenses = fixedExpenseOccurrences.reduce((sum, expense) => sum + expense.amount, 0);
   const futureExpenseCount = state.expenses.filter(
-    (expense) => !expense.balanceAdjustment && expense.date > today && expense.date <= targetDate,
+    (expense) =>
+      !expense.balanceAdjustment &&
+      !expense.goalContribution &&
+      expense.date > today &&
+      expense.date <= targetDate,
   ).length;
   const fixedExpenseCount = fixedExpenseOccurrences.length;
 
@@ -1286,7 +1406,8 @@ export function forecastUntilDate(state: FinanceState, targetDate: string, from 
     projectedIncome: recurringIncome + extraIncome,
     manualExpenses,
     fixedExpenses,
-    projectedExpenses: manualExpenses + fixedExpenses,
+    goalContributions,
+    projectedExpenses: manualExpenses + fixedExpenses + goalContributions,
     futureExpenseCount,
     fixedExpenseCount,
   };
@@ -1324,7 +1445,9 @@ export function summarize(state: FinanceState, month = currentMonthKey()) {
   );
   const dueFixedExpenses = monthFixedExpenses.filter((expense) => expense.date <= cutoff);
   const monthRevenues = state.revenues.filter((r) => monthKey(r.date) === month);
-  const spendingExpenses = monthExpenses.filter((expense) => !expense.balanceAdjustment);
+  const spendingExpenses = monthExpenses.filter(
+    (expense) => !expense.balanceAdjustment && !expense.goalContribution,
+  );
   const manualSpent = spendingExpenses.reduce((sum, e) => sum + e.amount, 0);
   const fixedSpent = dueFixedExpenses.reduce((sum, e) => sum + e.amount, 0);
   const plannedFixedSpent = monthFixedExpenses.reduce((sum, e) => sum + e.amount, 0);
@@ -1404,6 +1527,32 @@ export function summarize(state: FinanceState, month = currentMonthKey()) {
   };
 }
 
+export function goalContributionTotal(state: FinanceState, goalId: string) {
+  return state.expenses
+    .filter((expense) => expense.goalContribution && expense.goalId === goalId)
+    .reduce((sum, expense) => sum + expense.amount, 0);
+}
+
+export function goalProgress(state: FinanceState, goal: FinancialGoal) {
+  const saved = goalContributionTotal(state, goal.id);
+  const remaining = Math.max(0, goal.targetAmount - saved);
+  const percent =
+    goal.targetAmount > 0 ? Math.min(100, Math.round((saved / goal.targetAmount) * 100)) : 0;
+
+  return {
+    ...goal,
+    saved,
+    remaining,
+    percent,
+  };
+}
+
+export function goalsWithProgress(state: FinanceState) {
+  return state.goals
+    .map((goal) => goalProgress(state, goal))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 export function lastMonths(state: FinanceState, n = 6) {
   const out: { month: string; label: string; total: number }[] = [];
   const now = new Date();
@@ -1415,7 +1564,7 @@ export function lastMonths(state: FinanceState, n = 6) {
       label: d.toLocaleDateString("pt-BR", { month: "short" }).replace(".", ""),
       total:
         state.expenses
-          .filter((e) => !e.balanceAdjustment && monthKey(e.date) === key)
+          .filter((e) => !e.balanceAdjustment && !e.goalContribution && monthKey(e.date) === key)
           .reduce((s, e) => s + e.amount, 0) +
         fixedExpensesDueUntil(
           state.fixedExpenses,

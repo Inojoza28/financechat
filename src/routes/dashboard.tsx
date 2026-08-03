@@ -18,7 +18,9 @@ import {
   LayoutDashboard,
   Pencil,
   PencilLine,
+  PiggyBank,
   Plus,
+  Target,
   Trash2,
   X,
 } from "lucide-react";
@@ -55,6 +57,7 @@ import {
   financeActions,
   fixedExpenseOccurrencesForMonth,
   formatBRL,
+  goalsWithProgress,
   incomeLabel,
   isIncomeAutoDepositEnabled,
   lastMonths,
@@ -68,6 +71,7 @@ import {
   useFinance,
   type Expense,
   type FinanceState,
+  type FinancialGoal,
   type FixedExpense,
   type IncomeOccurrence,
   type Revenue,
@@ -252,6 +256,12 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const [visibleLaunchCount, setVisibleLaunchCount] = useState(RECENT_LAUNCH_PAGE_SIZE);
   const [fixedExpenseModalOpen, setFixedExpenseModalOpen] = useState(false);
   const [selectedFixedExpense, setSelectedFixedExpense] = useState<FixedExpense | null>(null);
+  const [goalModalOpen, setGoalModalOpen] = useState(false);
+  const [selectedGoal, setSelectedGoal] = useState<FinancialGoal | null>(null);
+  const [goalName, setGoalName] = useState("");
+  const [goalTargetAmount, setGoalTargetAmount] = useState("");
+  const [contributionGoal, setContributionGoal] = useState<FinancialGoal | null>(null);
+  const [contributionAmount, setContributionAmount] = useState("");
   const [selectedFixedOccurrence, setSelectedFixedOccurrence] = useState<Extract<
     RecentLaunch,
     { kind: "fixedExpense" }
@@ -277,8 +287,11 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const recentCutoff = isoDateDaysAgo(38);
   const today = localISODate();
   const activeFixedExpenses = state.fixedExpenses.filter((expense) => !expense.canceledAt);
+  const goals = goalsWithProgress(state);
   const futureLaunches = state.expenses
-    .filter((expense) => !expense.balanceAdjustment && expense.date > today)
+    .filter(
+      (expense) => !expense.balanceAdjustment && !expense.goalContribution && expense.date > today,
+    )
     .slice()
     .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
   const visibleFutureLaunches = futureLaunches.slice(0, visibleFutureLaunchCount);
@@ -338,6 +351,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const hasMoreRecentLaunches = visibleLaunchCount < recentLaunches.length;
   const selectedExpenseIsFuture = Boolean(selectedExpense && selectedExpense.date > today);
   const selectedExpenseIsBalanceAdjustment = Boolean(selectedExpense?.balanceAdjustment);
+  const selectedExpenseIsGoalContribution = Boolean(selectedExpense?.goalContribution);
 
   useEffect(() => {
     setCardsEditing(false);
@@ -574,11 +588,19 @@ function DashboardContent({ state }: { state: FinanceState }) {
       financeActions.updateExpense(selectedExpense.id, {
         description,
         amount: amountToStore,
-        category: selectedExpenseIsBalanceAdjustment ? "Ajuste de saldo" : editCategory,
+        category: selectedExpenseIsBalanceAdjustment
+          ? "Ajuste de saldo"
+          : selectedExpenseIsGoalContribution
+            ? "Meta"
+            : editCategory,
         date: editDate || selectedExpense.date,
       });
       toast.success(
-        selectedExpenseIsBalanceAdjustment ? "Ajuste de saldo atualizado." : "Despesa atualizada.",
+        selectedExpenseIsBalanceAdjustment
+          ? "Ajuste de saldo atualizado."
+          : selectedExpenseIsGoalContribution
+            ? "Aporte atualizado."
+            : "Despesa atualizada.",
       );
     } else {
       financeActions.addExpense({
@@ -623,6 +645,93 @@ function DashboardContent({ state }: { state: FinanceState }) {
   const closeFixedExpense = () => {
     setFixedExpenseModalOpen(false);
     setSelectedFixedExpense(null);
+  };
+
+  const openNewGoal = () => {
+    setSelectedGoal(null);
+    setGoalName("");
+    setGoalTargetAmount("");
+    setGoalModalOpen(true);
+  };
+
+  const openGoal = (goal: FinancialGoal) => {
+    setSelectedGoal(goal);
+    setGoalName(goal.name);
+    setGoalTargetAmount(moneyToInput(goal.targetAmount));
+    setGoalModalOpen(true);
+  };
+
+  const closeGoal = () => {
+    setGoalModalOpen(false);
+    setSelectedGoal(null);
+    setGoalName("");
+    setGoalTargetAmount("");
+  };
+
+  const saveGoal = () => {
+    const name = goalName.trim();
+    const targetAmount = moneyFromInput(goalTargetAmount);
+
+    if (!name) {
+      toast.error("Informe o nome da meta.");
+      return;
+    }
+
+    if (!Number.isFinite(targetAmount) || targetAmount <= 0) {
+      toast.error("Informe um valor objetivo válido.");
+      return;
+    }
+
+    if (selectedGoal) {
+      financeActions.updateGoal(selectedGoal.id, { name, targetAmount });
+      toast.success("Meta atualizada.");
+    } else {
+      financeActions.addGoal({ name, targetAmount });
+      toast.success("Meta criada.");
+    }
+
+    closeGoal();
+  };
+
+  const deleteSelectedGoal = () => {
+    if (!selectedGoal) return;
+    financeActions.removeGoal(selectedGoal.id);
+    toast.success("Meta removida.");
+    closeGoal();
+  };
+
+  const openGoalContribution = (goal: FinancialGoal) => {
+    setContributionGoal(goal);
+    setContributionAmount("");
+  };
+
+  const closeGoalContribution = () => {
+    setContributionGoal(null);
+    setContributionAmount("");
+  };
+
+  const saveGoalContribution = () => {
+    if (!contributionGoal) return;
+    const amount = moneyFromInput(contributionAmount);
+    const currentBalance = summarize(state, currentMonthKey()).balance;
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      toast.error("Informe um valor válido para o aporte.");
+      return;
+    }
+
+    if (amount > currentBalance) {
+      toast.error("Seu saldo disponível não cobre esse aporte.");
+      return;
+    }
+
+    financeActions.addGoalContribution({
+      goalId: contributionGoal.id,
+      amount,
+      manual: true,
+    });
+    toast.success("Aporte registrado no cofrinho.");
+    closeGoalContribution();
   };
 
   const saveFixedExpense = () => {
@@ -912,6 +1021,116 @@ function DashboardContent({ state }: { state: FinanceState }) {
               }}
             />
           </div>
+        </div>
+      )}
+
+      {state.goalsEnabled && (
+        <div className="animate-rise overflow-hidden rounded-[18px] border border-border/55 bg-surface shadow-soft">
+          <div className="flex flex-col gap-3 p-5 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 gap-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-emerald-200/70 bg-emerald-50 text-emerald-700 dark:border-success/25 dark:bg-success/[0.11] dark:text-success">
+                <PiggyBank className="size-5" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-[15px] font-semibold leading-tight">Metas financeiras</p>
+                <p className="mt-1 max-w-[34rem] text-[12.5px] leading-relaxed text-muted-foreground">
+                  Cofrinhos para separar dinheiro com clareza, acompanhar progresso e manter o saldo
+                  organizado.
+                </p>
+              </div>
+            </div>
+            <Button className="h-9 rounded-xl sm:shrink-0" onClick={openNewGoal}>
+              <Plus className="size-4" />
+              Nova meta
+            </Button>
+          </div>
+
+          {goals.length === 0 ? (
+            <div className="px-5 pb-5">
+              <div className="rounded-2xl border border-dashed border-emerald-200/75 bg-emerald-50/35 px-4 py-4 text-center dark:border-success/24 dark:bg-success/[0.06]">
+                <Target className="mx-auto size-5 text-emerald-700 dark:text-success" />
+                <p className="mt-2 text-[14px] font-semibold">Crie seu primeiro cofrinho</p>
+                <p className="mx-auto mt-1 max-w-md text-[12.5px] leading-relaxed text-muted-foreground">
+                  Defina uma meta como viagem, notebook ou reserva e acompanhe cada aporte sem
+                  misturar com os gastos do mês.
+                </p>
+                <Button className="mt-3 h-9 rounded-xl" onClick={openNewGoal}>
+                  <Plus className="size-4" />
+                  Criar meta
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-3 border-t border-border/45 p-4 sm:p-5 md:grid-cols-2">
+              {goals.map((goal) => (
+                <div
+                  key={goal.id}
+                  className="group rounded-2xl border border-border/55 bg-background/60 p-4 transition-all duration-200 hover:border-emerald-300/50 hover:shadow-[0_14px_34px_-28px_hsl(155_70%_34%/0.45)] dark:bg-background/25 dark:hover:border-success/30 dark:hover:shadow-none"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100 dark:bg-success/[0.12] dark:text-success dark:ring-success/20">
+                          <Target className="size-3.5" />
+                        </span>
+                        <p className="truncate text-[14px] font-semibold">{goal.name}</p>
+                      </div>
+                      <p className="mt-2 text-[12px] text-muted-foreground">
+                        Guardado{" "}
+                        <span className="font-semibold text-foreground">
+                          {formatBRL(goal.saved)}
+                        </span>{" "}
+                        de {formatBRL(goal.targetAmount)}
+                      </p>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className="shrink-0 rounded-full border-emerald-200/75 bg-emerald-50 px-2.5 py-0.5 text-[10.5px] font-medium text-emerald-700 shadow-none dark:border-success/25 dark:bg-success/[0.12] dark:text-success"
+                    >
+                      {goal.percent}%
+                    </Badge>
+                  </div>
+
+                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-secondary">
+                    <div
+                      className="h-full rounded-full bg-success transition-all duration-700"
+                      style={{ width: `${goal.percent}%` }}
+                    />
+                  </div>
+
+                  <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-[12px] text-muted-foreground">
+                      Restante{" "}
+                      <span className="font-semibold text-foreground">
+                        {formatBRL(goal.remaining)}
+                      </span>
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 sm:flex">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-8 rounded-full px-3 text-[12px]"
+                        onClick={() => openGoal(goal)}
+                      >
+                        <Pencil className="size-3.5" />
+                        Editar
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 rounded-full px-3 text-[12px]"
+                        onClick={() => openGoalContribution(goal)}
+                      >
+                        <Plus className="size-3.5" />
+                        Aportar
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -1222,7 +1441,9 @@ function DashboardContent({ state }: { state: FinanceState }) {
                         className={`flex w-full items-center justify-between gap-3 rounded-xl py-2.5 text-left transition-colors hover:bg-secondary/60 focus-visible:bg-secondary/60 ${
                           entry.balanceAdjustment
                             ? "bg-sky-50/45 ring-1 ring-sky-100/75 dark:bg-primary/[0.07] dark:ring-primary/15"
-                            : ""
+                            : entry.goalContribution
+                              ? "bg-emerald-50/35 ring-1 ring-emerald-100/60 dark:bg-success/[0.07] dark:ring-success/20"
+                              : ""
                         }`}
                       >
                         <div className="min-w-0 px-2">
@@ -1235,6 +1456,13 @@ function DashboardContent({ state }: { state: FinanceState }) {
                               >
                                 Ajuste de saldo
                               </Badge>
+                            ) : entry.goalContribution ? (
+                              <Badge
+                                variant="outline"
+                                className="shrink-0 rounded-full border border-emerald-200/80 bg-emerald-100/70 px-2 py-0 text-[10px] font-medium text-emerald-700 shadow-none dark:border-success/30 dark:bg-success/[0.14] dark:text-success"
+                              >
+                                Meta
+                              </Badge>
                             ) : entry.manual ? (
                               <Badge
                                 variant="outline"
@@ -1245,8 +1473,12 @@ function DashboardContent({ state }: { state: FinanceState }) {
                             ) : null}
                           </div>
                           <p className="text-[12px] text-muted-foreground">
-                            {entry.balanceAdjustment ? "Correção manual" : entry.category} ·{" "}
-                            {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
+                            {entry.balanceAdjustment
+                              ? "Correção manual"
+                              : entry.goalContribution
+                                ? "Cofrinho"
+                                : entry.category}{" "}
+                            · {new Date(`${entry.date}T12:00:00`).toLocaleDateString("pt-BR")}
                           </p>
                         </div>
                         <span
@@ -1255,12 +1487,16 @@ function DashboardContent({ state }: { state: FinanceState }) {
                               ? entry.amount < 0
                                 ? "text-emerald-700 dark:text-success"
                                 : "text-rose-700 dark:text-destructive"
-                              : ""
+                              : entry.goalContribution
+                                ? "text-emerald-700 dark:text-success"
+                                : ""
                           }`}
                         >
                           {entry.balanceAdjustment
                             ? `${entry.amount < 0 ? "+" : "-"} ${formatBRL(Math.abs(entry.amount))}`
-                            : formatBRL(entry.amount)}
+                            : entry.goalContribution
+                              ? `- ${formatBRL(entry.amount)}`
+                              : formatBRL(entry.amount)}
                           <Pencil className="size-3.5 text-muted-foreground" />
                         </span>
                       </button>
@@ -1372,18 +1608,22 @@ function DashboardContent({ state }: { state: FinanceState }) {
             <DialogTitle>
               {selectedExpenseIsBalanceAdjustment
                 ? "Editar ajuste de saldo"
-                : selectedExpense
-                  ? "Editar despesa"
-                  : "Novo lançamento"}
+                : selectedExpenseIsGoalContribution
+                  ? "Editar aporte"
+                  : selectedExpense
+                    ? "Editar despesa"
+                    : "Novo lançamento"}
             </DialogTitle>
             <DialogDescription>
               {selectedExpenseIsFuture
                 ? "Ajuste esta despesa programada. Ela continua sem afetar o saldo atual enquanto permanecer em uma data futura."
                 : selectedExpenseIsBalanceAdjustment
                   ? "Esse lançamento representa uma correção manual do saldo, não uma despesa ou receita comum."
-                  : selectedExpense
-                    ? "Ajuste os dados do lançamento. Os resumos e gráficos são atualizados na hora."
-                    : "Adicione uma despesa manualmente. Ela aparecerá nos últimos lançamentos com identificação própria."}
+                  : selectedExpenseIsGoalContribution
+                    ? "Esse lançamento reduz o saldo disponível e aumenta o progresso da meta vinculada."
+                    : selectedExpense
+                      ? "Ajuste os dados do lançamento. Os resumos e gráficos são atualizados na hora."
+                      : "Adicione uma despesa manualmente. Ela aparecerá nos últimos lançamentos com identificação própria."}
             </DialogDescription>
           </DialogHeader>
 
@@ -1431,9 +1671,9 @@ function DashboardContent({ state }: { state: FinanceState }) {
               <Label htmlFor="expense-category" className="text-[13px]">
                 Categoria
               </Label>
-              {selectedExpenseIsBalanceAdjustment ? (
+              {selectedExpenseIsBalanceAdjustment || selectedExpenseIsGoalContribution ? (
                 <div className="mt-1.5 flex h-10 items-center rounded-xl border border-input bg-secondary/45 px-3 text-[14px] text-muted-foreground">
-                  Ajuste de saldo
+                  {selectedExpenseIsBalanceAdjustment ? "Ajuste de saldo" : "Meta"}
                 </div>
               ) : (
                 <select
@@ -1721,6 +1961,142 @@ function DashboardContent({ state }: { state: FinanceState }) {
               onClick={saveFixedOccurrence}
             >
               Salvar valor
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={goalModalOpen} onOpenChange={(open) => !open && closeGoal()}>
+        <DialogContent className="rounded-[20px] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{selectedGoal ? "Editar meta" : "Nova meta financeira"}</DialogTitle>
+            <DialogDescription>
+              Crie um cofrinho para acompanhar objetivos e separar aportes quando fizer sentido.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3">
+            <div>
+              <Label htmlFor="goal-name" className="text-[13px]">
+                Nome da meta
+              </Label>
+              <Input
+                id="goal-name"
+                value={goalName}
+                onChange={(event) => setGoalName(event.target.value)}
+                placeholder="Viagem, notebook, reserva..."
+                className="mt-1.5 rounded-xl"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="goal-target" className="text-[13px]">
+                Valor objetivo
+              </Label>
+              <Input
+                id="goal-target"
+                inputMode="decimal"
+                value={goalTargetAmount}
+                onChange={(event) => setGoalTargetAmount(event.target.value)}
+                placeholder="1.000,00"
+                className="mt-1.5 rounded-xl"
+              />
+            </div>
+          </div>
+
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:space-x-0">
+            <div className="order-2 flex w-full gap-2 sm:order-1 sm:w-auto">
+              {selectedGoal && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" className="flex-1 rounded-xl sm:flex-none">
+                      <Trash2 className="size-4" />
+                      Excluir
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent className="rounded-[20px]">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Excluir esta meta?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Isso remove a meta e os aportes vinculados a ela. Como os aportes saem do
+                        saldo, o valor guardado volta a ficar disponível.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter className="gap-2 sm:space-x-0">
+                      <AlertDialogCancel className="mt-0 rounded-xl">Cancelar</AlertDialogCancel>
+                      <AlertDialogAction
+                        className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        onClick={deleteSelectedGoal}
+                      >
+                        Excluir meta
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+
+              <Button
+                variant="outline"
+                className="flex-1 rounded-xl sm:flex-none"
+                onClick={closeGoal}
+              >
+                Cancelar
+              </Button>
+            </div>
+
+            <Button className="order-1 w-full rounded-xl sm:order-2 sm:w-auto" onClick={saveGoal}>
+              {selectedGoal ? "Salvar alterações" : "Criar meta"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(contributionGoal)}
+        onOpenChange={(open) => !open && closeGoalContribution()}
+      >
+        <DialogContent className="rounded-[20px] sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Adicionar aporte</DialogTitle>
+            <DialogDescription>
+              O valor sai do saldo disponível e entra no progresso da meta.
+            </DialogDescription>
+          </DialogHeader>
+
+          {contributionGoal && (
+            <div className="grid gap-3">
+              <div className="rounded-2xl border border-emerald-100/80 bg-emerald-50/45 px-3 py-3 dark:border-success/20 dark:bg-success/[0.08]">
+                <p className="text-[13px] font-semibold">{contributionGoal.name}</p>
+                <p className="mt-1 text-[12px] text-muted-foreground">
+                  Objetivo: {formatBRL(contributionGoal.targetAmount)}
+                </p>
+              </div>
+
+              <div>
+                <Label htmlFor="goal-contribution-amount" className="text-[13px]">
+                  Valor do aporte
+                </Label>
+                <Input
+                  id="goal-contribution-amount"
+                  inputMode="decimal"
+                  value={contributionAmount}
+                  onChange={(event) => setContributionAmount(event.target.value)}
+                  placeholder="100,00"
+                  className="mt-1.5 rounded-xl"
+                />
+                <p className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground">
+                  Esse lançamento aparecerá em Últimos lançamentos com o badge Meta.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 sm:space-x-0">
+            <Button variant="outline" className="rounded-xl" onClick={closeGoalContribution}>
+              Cancelar
+            </Button>
+            <Button className="rounded-xl" onClick={saveGoalContribution}>
+              Aportar
             </Button>
           </DialogFooter>
         </DialogContent>
