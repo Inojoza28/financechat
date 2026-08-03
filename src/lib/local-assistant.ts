@@ -1277,6 +1277,17 @@ function answerIdealDailySpend(month: string) {
   return `Para manter o mês equilibrado, o ideal seria gastar até cerca de **${formatBRL(ideal)} hoje**.\n\nUsei como base seu saldo disponível de **${formatBRL(s.balance)}** e os **${remainingDays} dia${remainingDays === 1 ? "" : "s"}** restantes em ${monthLabel(month)}.${limitText}`;
 }
 
+function isIdealDailySpendQuestion(text: string) {
+  const asksHowMuch = /\bquanto\b/.test(text);
+  const spendingToday =
+    /\b(?:eu\s+)?(?:posso|consigo|devo|poderia)\s+gastar\s+(?:hoje|por\s+dia)\b/.test(text) ||
+    /\b(?:da|dá)\s+para\s+(?:eu\s+)?gastar\s+(?:hoje|por\s+dia)\b/.test(text) ||
+    /\b(?:ideal|recomendado|seguro)\s+(?:para\s+)?gastar\s+(?:hoje|por\s+dia)\b/.test(text) ||
+    /\bgastar\s+(?:hoje|por\s+dia)\b/.test(text);
+
+  return asksHowMuch && spendingToday;
+}
+
 function isMonthlyWeightQuestion(text: string) {
   return (
     /\b(o que|qual|quais)\b.*\b(pesou|mais pesou|mais gastei|maior gasto|maiores gastos)\b/.test(
@@ -2400,15 +2411,22 @@ function answerNextMonthProjection(month: string) {
 }
 
 function isFutureMonthProjectionRequest(text: string) {
+  const asksFutureBalance =
+    /\bquanto\s+(?:eu\s+)?(?:vou\s+)?(?:ter|ficar)\b/.test(text) ||
+    /\bquanto\s+(?:eu\s+)?(?:terei|ficarei)\b/.test(text) ||
+    /\bqual\s+(?:sera|vai\s+ser)\s+(?:meu\s+)?saldo\b/.test(text) ||
+    /\bsaldo\s+(?:previsto|projetado|estimado)?\b/.test(text);
+
   return (
-    includesAny(text, FUTURE_MONTH_PROJECTION_WORDS) &&
-    (text.includes("quanto") ||
-      text.includes("saldo") ||
-      text.includes("projecao") ||
-      text.includes("estimativa") ||
-      text.includes("disponivel") ||
-      text.includes("ficar") ||
-      text.includes("ter"))
+    asksFutureBalance ||
+    (includesAny(text, FUTURE_MONTH_PROJECTION_WORDS) &&
+      (text.includes("quanto") ||
+        text.includes("saldo") ||
+        text.includes("projecao") ||
+        text.includes("estimativa") ||
+        text.includes("disponivel") ||
+        text.includes("ficar") ||
+        text.includes("ter")))
   );
 }
 
@@ -2766,16 +2784,7 @@ export function answerLocally(
     return { text: answerDailySummary() };
   }
 
-  if (
-    includesAny(normalized, [
-      "ideal para gastar hoje",
-      "quanto seria o ideal para gastar hoje",
-      "quanto devo gastar hoje",
-      "quanto posso gastar hoje",
-      "quanto posso gastar por dia",
-      "quanto ainda posso gastar por dia",
-    ])
-  ) {
+  if (isIdealDailySpendQuestion(normalized)) {
     return { text: answerIdealDailySpend(month) };
   }
 
@@ -2823,6 +2832,11 @@ export function answerLocally(
     return { text: balanceAdjustment };
   }
 
+  if (isImpactSimulationRequest(normalized)) {
+    const simulation = simulateSpend(text, month);
+    if (simulation) return { text: simulation };
+  }
+
   const spendingQuery = answerSpendingQuery(text);
   if (spendingQuery) {
     return { text: spendingQuery };
@@ -2857,7 +2871,6 @@ export function answerLocally(
   }
 
   if (
-    isImpactSimulationRequest(normalized) ||
     normalized.includes("consigo") ||
     normalized.includes("posso") ||
     normalized.includes("da para") ||
@@ -2936,8 +2949,10 @@ export function answerLocally(
     "`Gastei R$ 35 com almoço`",
     "`40 reais`",
     "`Ganhei R$ 100`",
+    "`Quanto eu posso gastar hoje?`",
+    "`Quanto eu vou ter em setembro?`",
+    "`E se eu gastar R$ 50 amanhã?`",
     "`Quanto terei após o próximo pagamento?`",
-    "`Quanto vou ter no próximo mês?`",
     "`Minha renda é R$ 4.500 por mês`",
   ].join(", ");
 

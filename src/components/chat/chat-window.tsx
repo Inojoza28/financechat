@@ -2,6 +2,7 @@
 import {
   ArrowRight,
   CalendarDays,
+  ChevronDown,
   Check,
   Copy,
   Gauge,
@@ -197,6 +198,7 @@ export function ChatWindow() {
   const [seenSmartSuggestions, setSeenSmartSuggestions] =
     useState<string[]>(readSeenSmartSuggestions);
   const [activeSmartSuggestion, setActiveSmartSuggestion] = useState<QuickAction | null>(null);
+  const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false);
   const [messages, setMessages] = useState<UIMessage[]>(
     () => getFinanceState().messagesByMonth[currentMonthKey()] ?? [],
   );
@@ -865,15 +867,104 @@ export function ChatWindow() {
       <div className="glass border-t border-border/50">
         <div className="mx-auto w-full max-w-3xl px-4 pt-3 pb-5 sm:pb-4">
           {state.income && (
-            <p className="mb-2 text-center text-[12px] text-muted-foreground">
-              Saldo acumulado até {monthLabel(selectedMonth)}:{" "}
-              <span className="font-semibold text-foreground">{formatBRL(summary.balance)}</span> ·
-              extras do mês {formatBRL(summary.extraIncome)} · gasto do mês{" "}
-              {formatBRL(summary.spent)}
-              {summary.spendingLimit
-                ? ` · limite ${summary.limitUsedPercent}% (${formatBRL(Math.max(0, summary.limitRemaining ?? 0))} livres)`
-                : ""}
-            </p>
+            <>
+              <p className="mb-2 hidden text-center text-[12px] text-muted-foreground sm:block">
+                Saldo acumulado até {monthLabel(selectedMonth)}:{" "}
+                <span className="font-semibold text-foreground">{formatBRL(summary.balance)}</span>{" "}
+                · extras do mês {formatBRL(summary.extraIncome)} · gasto do mês{" "}
+                {formatBRL(summary.spent)}
+                {summary.spendingLimit
+                  ? ` · limite ${summary.limitUsedPercent}% (${formatBRL(Math.max(0, summary.limitRemaining ?? 0))} livres)`
+                  : ""}
+              </p>
+              <div className="mb-2 sm:hidden">
+                <div className="flex items-center gap-1.5 rounded-2xl border border-border/50 bg-background/60 px-2 py-1.5">
+                  <span className="min-w-0 flex-1 text-center">
+                    <span className="block text-[10px] font-medium text-muted-foreground">
+                      Saldo
+                    </span>
+                    <span className="block truncate text-[11px] font-semibold text-foreground">
+                      {formatBRL(summary.balance)}
+                    </span>
+                  </span>
+                  <span className="h-7 w-px bg-border/60" />
+                  <span className="min-w-0 flex-1 text-center">
+                    <span className="block text-[10px] font-medium text-muted-foreground">
+                      Gasto
+                    </span>
+                    <span className="block truncate text-[11px] font-semibold text-foreground">
+                      {formatBRL(summary.spent)}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setMobileSummaryOpen((open) => !open)}
+                    className="inline-flex h-8 shrink-0 cursor-pointer items-center gap-1 rounded-full border border-primary/20 bg-primary/5 px-2.5 text-[11px] font-medium text-primary transition-colors hover:border-primary/35 hover:bg-primary/10"
+                    aria-expanded={mobileSummaryOpen}
+                    aria-label={
+                      mobileSummaryOpen ? "Ocultar resumo financeiro" : "Mostrar resumo financeiro"
+                    }
+                  >
+                    <Info className="size-3" />
+                    {mobileSummaryOpen ? "Ocultar" : "Resumo"}
+                    <ChevronDown
+                      className={`size-3 transition-transform duration-200 ${
+                        mobileSummaryOpen ? "rotate-180" : ""
+                      }`}
+                    />
+                  </button>
+                </div>
+                <div
+                  className={`grid transition-all duration-200 ease-out ${
+                    mobileSummaryOpen
+                      ? "mt-2 grid-rows-[1fr] opacity-100"
+                      : "grid-rows-[0fr] opacity-0"
+                  }`}
+                >
+                  <div className="overflow-hidden">
+                    <div className="grid grid-cols-3 gap-1.5 rounded-2xl border border-border/60 bg-secondary/40 px-2.5 py-2 text-center">
+                      <span className="min-w-0">
+                        <span className="block text-[10px] font-medium text-muted-foreground">
+                          Extras
+                        </span>
+                        <span className="block truncate text-[11px] font-semibold text-foreground">
+                          {formatBRL(summary.extraIncome)}
+                        </span>
+                      </span>
+                      {summary.spendingLimit ? (
+                        <span className="min-w-0">
+                          <span className="block text-[10px] font-medium text-muted-foreground">
+                            Limite total
+                          </span>
+                          <span className="block truncate text-[11px] font-semibold text-foreground">
+                            {formatBRL(summary.spendingLimit)}
+                          </span>
+                        </span>
+                      ) : (
+                        <span className="min-w-0">
+                          <span className="block text-[10px] font-medium text-muted-foreground">
+                            Limite total
+                          </span>
+                          <span className="block truncate text-[11px] font-semibold text-muted-foreground">
+                            -
+                          </span>
+                        </span>
+                      )}
+                      <span className="min-w-0">
+                        <span className="block text-[10px] font-medium text-muted-foreground">
+                          Disponível
+                        </span>
+                        <span className="block truncate text-[11px] font-semibold text-foreground">
+                          {summary.spendingLimit
+                            ? formatBRL(Math.max(0, summary.limitRemaining ?? 0))
+                            : "-"}
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
           )}
           <PromptInput
             className="rounded-[16px] bg-transparent shadow-float transition-shadow duration-300 focus-within:shadow-[0_8px_32px_-18px_oklch(0.2_0.02_260_/_36%)]"
