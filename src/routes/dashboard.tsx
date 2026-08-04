@@ -2358,7 +2358,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                     : selectedFixedExpense
                       ? "Editar despesa fixa"
                       : fixedPaymentType === "installment"
-                        ? "Despesa fixa parcelada"
+                        ? "Despesa parcelada"
                         : "Despesa fixa mensal"}
                 </DialogTitle>
                 <DialogDescription className="mt-1">
@@ -2402,7 +2402,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                 </span>
                 <span className="min-w-0">
                   <span className="block text-[14px] font-semibold text-foreground">
-                    Despesa fixa parcelada
+                    Despesa parcelada
                   </span>
                   <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">
                     Para compras com controle de quantidade e parcela atual.
