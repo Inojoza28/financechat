@@ -121,6 +121,12 @@ type RecentLaunch =
       category: string;
     };
 
+function compareAutomaticIncomeAndFixedExpense(a: RecentLaunch, b: RecentLaunch) {
+  if (a.kind === "income" && b.kind === "fixedExpense") return -1;
+  if (a.kind === "fixedExpense" && b.kind === "income") return 1;
+  return 0;
+}
+
 function isoDateDaysAgo(days: number) {
   const date = new Date();
   date.setDate(date.getDate() - days);
@@ -378,7 +384,12 @@ function DashboardContent({ state }: { state: FinanceState }) {
     ...recentFixedExpenses,
   ]
     .slice()
-    .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+    .sort(
+      (a, b) =>
+        b.date.localeCompare(a.date) ||
+        compareAutomaticIncomeAndFixedExpense(a, b) ||
+        b.createdAt.localeCompare(a.createdAt),
+    );
   const visibleRecentLaunches = recentLaunches.slice(0, visibleLaunchCount);
   const hasMoreRecentLaunches = visibleLaunchCount < recentLaunches.length;
   const selectedExpenseIsFuture = Boolean(selectedExpense && selectedExpense.date > today);
