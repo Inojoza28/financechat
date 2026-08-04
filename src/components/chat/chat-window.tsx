@@ -232,7 +232,7 @@ export function ChatWindow() {
         : "border-red-300/70 bg-red-50 text-red-700 hover:border-red-400/80 hover:bg-red-100/80 dark:border-red-400/25 dark:bg-red-400/10 dark:text-red-300 dark:hover:bg-red-400/15";
   const summaryLimitTextClass =
     !summary.spendingLimit || summaryLimitPercent < 80
-      ? "text-muted-foreground"
+      ? "text-foreground"
       : summaryLimitPercent < 90
         ? "text-amber-700 dark:text-amber-300"
         : "text-red-700 dark:text-red-300";
