@@ -12,6 +12,12 @@ const titles: Record<string, string> = {
   "/support": "Apoiar - HeyFin",
 };
 
+declare global {
+  interface Window {
+    gtag?: (...args: unknown[]) => void;
+  }
+}
+
 function normalizePath(pathname: string) {
   if (pathname === "/dashboard" || pathname === "/settings" || pathname === "/support") {
     return pathname;
@@ -55,7 +61,8 @@ export function App() {
   }, [theme]);
 
   useEffect(() => {
-    document.title = titles[pathname] ?? "HeyFin";
+    const pageTitle = titles[pathname] ?? "HeyFin";
+    document.title = pageTitle;
     const canonicalUrl = `${window.location.origin}${pathname}`;
     let canonical = document.querySelector<HTMLLinkElement>('link[rel="canonical"]');
     if (!canonical) {
@@ -72,6 +79,12 @@ export function App() {
       document.head.appendChild(ogUrl);
     }
     ogUrl.content = canonicalUrl;
+
+    window.gtag?.("event", "page_view", {
+      page_title: pageTitle,
+      page_location: canonicalUrl,
+      page_path: pathname,
+    });
   }, [pathname]);
 
   if (pathname === "/dashboard") return <DashboardPage />;
