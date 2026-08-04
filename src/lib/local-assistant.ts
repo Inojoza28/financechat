@@ -983,7 +983,7 @@ function expenseLine(expense: Expense) {
   }
 
   if (expense.goalContribution) {
-    return `Aporte para meta: ${formatBRL(expense.amount)} — ${expense.description}`;
+    return `Valor guardado na meta: ${formatBRL(expense.amount)} — ${expense.description}`;
   }
 
   return `${formatBRL(expense.amount)} em ${expense.category}: ${expense.description}`;
@@ -1787,7 +1787,7 @@ function answerPendingAction(text: string, month: string) {
   if (pending.type === "goalContribution") {
     if (!getFinanceState().goalsEnabled) {
       financeActions.setPendingAction(null);
-      return "O Cofrinho está desativado em Ajustes, então não registrei nenhum aporte. Você pode ativar as Metas financeiras quando quiser usar esse recurso.";
+      return "O Cofrinho está desativado em Ajustes, então não guardei nenhum valor. Você pode ativar as Metas financeiras quando quiser usar esse recurso.";
     }
 
     if (isDenial(text)) {
@@ -1800,18 +1800,18 @@ function answerPendingAction(text: string, month: string) {
     const goal = getFinanceState().goals.find((item) => item.id === pending.goalId);
     if (!goal) {
       financeActions.setPendingAction(null);
-      return "Essa meta não está mais disponível. Não registrei nenhum aporte.";
+      return "Essa meta não está mais disponível. Não guardei nenhum valor.";
     }
 
     const contribution = financeActions.addGoalContribution({
       goalId: goal.id,
       amount: pending.amount,
-      description: `Aporte para ${goal.name}`,
+      description: `Guardado para ${goal.name}`,
     });
     financeActions.setPendingAction(null);
 
     if (!contribution) {
-      return "Não consegui registrar esse aporte agora. Confira suas metas no Dashboard e tente novamente.";
+      return "Não consegui guardar esse valor agora. Confira suas metas no Dashboard e tente novamente.";
     }
 
     const progress = goalProgress(getFinanceState(), goal);
@@ -1866,10 +1866,10 @@ function isSavingsGoalRequest(text: string) {
 
 function answerSavingsGoalHelp() {
   if (!getFinanceState().goalsEnabled) {
-    return "O recurso de **Metas financeiras** está desativado no momento.\n\nSe quiser usar o Cofrinho para criar objetivos, acompanhar progresso e registrar aportes, ative essa opção em **Ajustes > Cofrinho**.";
+    return "O recurso de **Metas financeiras** está desativado no momento.\n\nSe quiser usar o Cofrinho para criar objetivos, acompanhar progresso e guardar dinheiro para suas metas, ative essa opção em **Ajustes > Cofrinho**.";
   }
 
-  return "Sim. Agora você pode usar **Metas financeiras** no Dashboard para criar cofrinhos, acompanhar progresso e registrar aportes.\n\nPelo chat, também consigo ajudar com comandos como `Quero juntar R$ 1.000 para viagem`, `Adicionar R$ 100 para minha meta viagem` ou `Quais metas eu tenho?`.";
+  return "Sim. Agora você pode usar **Metas financeiras** no Dashboard para criar cofrinhos, acompanhar progresso e guardar dinheiro nas suas metas.\n\nPelo chat, também consigo ajudar com comandos como `Quero juntar R$ 1.000 para viagem`, `Adicionar R$ 100 para minha meta viagem` ou `Quais metas eu tenho?`.";
 }
 
 function normalizedGoalName(goal: Pick<FinancialGoal, "name">) {
@@ -1997,7 +1997,7 @@ function createGoalFromChat(text: string, amount: number) {
   const name = extractGoalName(text, amount);
   const goal = financeActions.addGoal({ name, targetAmount: amount });
 
-  return `Meta criada: **${goal.name}** com objetivo de **${formatBRL(goal.targetAmount)}**.\n\nEla já aparece em **Metas financeiras**, no Dashboard. Quando quiser separar dinheiro para ela, você pode usar **Aportar** no Dashboard ou me dizer algo como \`Adicionar R$ 100 para minha meta ${goal.name}\`.`;
+  return `Meta criada: **${goal.name}** com objetivo de **${formatBRL(goal.targetAmount)}**.\n\nEla já aparece em **Metas financeiras**, no Dashboard. Quando quiser separar dinheiro para ela, você pode usar **Guardar** no Dashboard ou me dizer algo como \`Adicionar R$ 100 para minha meta ${goal.name}\`.`;
 }
 
 function addGoalContributionFromChat(text: string, amount: number, month: string) {
@@ -2009,26 +2009,26 @@ function addGoalContributionFromChat(text: string, amount: number, month: string
 
   const goal = findGoalMention(text, goals) ?? (goals.length === 1 ? goals[0] : null);
   if (!goal) {
-    return `Para qual meta você quer enviar esse aporte de **${formatBRL(amount)}**?\n\n${goals.map((item) => `- ${item.name}`).join("\n")}`;
+    return `Para qual meta você quer guardar **${formatBRL(amount)}**?\n\n${goals.map((item) => `- ${item.name}`).join("\n")}`;
   }
 
   const currentBalance = summarize(state, month).balance;
   if (amount > currentBalance) {
-    return `Esse aporte é maior que seu saldo disponível atual (**${formatBRL(currentBalance)}**).\n\nPara manter o controle seguro, não registrei a movimentação. Você pode escolher um valor menor ou ajustar o saldo antes.`;
+    return `Esse valor é maior que seu saldo disponível atual (**${formatBRL(currentBalance)}**).\n\nPara manter o controle seguro, não registrei a movimentação. Você pode escolher um valor menor ou ajustar o saldo antes.`;
   }
 
   const contribution = financeActions.addGoalContribution({
     goalId: goal.id,
     amount,
-    description: `Aporte para ${goal.name}`,
+    description: `Guardado para ${goal.name}`,
   });
   if (!contribution)
-    return "Não consegui registrar esse aporte agora. Confira a meta no Dashboard.";
+    return "Não consegui guardar esse valor agora. Confira a meta no Dashboard.";
 
   const progress = goalProgress(getFinanceState(), goal);
   const s = summarize(getFinanceState(), month);
 
-  return `Aporte registrado: **${formatBRL(amount)}** para **${goal.name}**.\n\nProgresso da meta: **${progress.percent}%** (${formatBRL(progress.saved)} de ${formatBRL(progress.targetAmount)}). Ainda faltam **${formatBRL(progress.remaining)}**.\n\nEsse aporte apareceu em **Últimos lançamentos** com o badge **Meta**. Saldo disponível acumulado: **${formatBRL(s.balance)}**.`;
+  return `Valor guardado: **${formatBRL(amount)}** para **${goal.name}**.\n\nProgresso da meta: **${progress.percent}%** (${formatBRL(progress.saved)} de ${formatBRL(progress.targetAmount)}). Ainda faltam **${formatBRL(progress.remaining)}**.\n\nEssa movimentação apareceu em **Últimos lançamentos** com o badge **Meta**. Saldo disponível acumulado: **${formatBRL(s.balance)}**.`;
 }
 
 function answerGoalCommand(text: string, amount: number | null, month: string) {
@@ -2046,7 +2046,7 @@ function answerGoalCommand(text: string, amount: number | null, month: string) {
   if (!amount || !includesAny(normalized, GOAL_WORDS)) return null;
 
   const hasContributionVerb =
-    /\b(adicionar|adiciona|colocar|coloca|botar|bota|aporte|aportar)\b/.test(normalized);
+    /\b(adicionar|adiciona|colocar|coloca|botar|bota|guardar|guarda|separar|separa|aporte|aportar)\b/.test(normalized);
   const hasCreationSignal =
     (/\b(quero|pretendo|preciso|meta para|meta de)\b/.test(normalized) ||
       /^(juntar|guardar|economizar|poupar)\b/.test(normalized)) &&
@@ -2261,7 +2261,7 @@ function answerProjectionUntilPaymentDate(
     details.push(`despesas fixas: **${formatBRL(forecast.fixedExpenses)}**`);
   }
   if (forecast.goalContributions > 0) {
-    details.push(`aportes para metas: **${formatBRL(forecast.goalContributions)}**`);
+    details.push(`valores guardados em metas: **${formatBRL(forecast.goalContributions)}**`);
   }
 
   const detailsText = details.length ? `\n\nDetalhes considerados: ${details.join("; ")}.` : "";
@@ -2478,7 +2478,7 @@ function answerSpecificFutureMonthProjection(text: string) {
     details.push(`despesas fixas: **${formatBRL(forecast.fixedExpenses)}**`);
   }
   if (forecast.goalContributions > 0) {
-    details.push(`aportes para metas: **${formatBRL(forecast.goalContributions)}**`);
+    details.push(`valores guardados em metas: **${formatBRL(forecast.goalContributions)}**`);
   }
   const detailsText = details.length ? `\n\nDetalhes considerados: ${details.join("; ")}.` : "";
 

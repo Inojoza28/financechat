@@ -647,7 +647,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
         selectedExpenseIsBalanceAdjustment
           ? "Ajuste de saldo atualizado."
           : selectedExpenseIsGoalContribution
-            ? "Aporte atualizado."
+            ? "Valor guardado atualizado."
             : "Despesa atualizada.",
       );
 
@@ -803,12 +803,12 @@ function DashboardContent({ state }: { state: FinanceState }) {
     const currentBalance = summarize(state, currentMonthKey()).balance;
 
     if (!Number.isFinite(amount) || amount <= 0) {
-      toast.error("Informe um valor válido para o aporte.");
+      toast.error("Informe um valor válido para guardar.");
       return;
     }
 
     if (amount > currentBalance) {
-      toast.error("Seu saldo disponível não cobre esse aporte.");
+      toast.error("Seu saldo disponível não cobre esse valor.");
       return;
     }
 
@@ -1179,7 +1179,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                 <Target className="mx-auto size-5 text-emerald-700 dark:text-success" />
                 <p className="mt-2 text-[14px] font-semibold">Crie seu primeiro cofrinho</p>
                 <p className="mx-auto mt-1 max-w-md text-[12.5px] leading-relaxed text-muted-foreground">
-                  Defina uma meta como viagem, notebook ou reserva e acompanhe cada aporte sem
+                  Defina uma meta como viagem, notebook ou reserva e acompanhe cada valor guardado sem
                   misturar com os gastos do mês.
                 </p>
                 <Button className="mt-3 h-9 rounded-xl" onClick={openNewGoal}>
@@ -1252,7 +1252,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                           onClick={() => openGoalContribution(goal)}
                         >
                           <Plus className="size-3.5" />
-                          Aportar
+                          Guardar
                         </Button>
                       </div>
                     </div>
@@ -1771,7 +1771,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
               {selectedExpenseIsBalanceAdjustment
                 ? "Editar ajuste de saldo"
                 : selectedExpenseIsGoalContribution
-                  ? "Editar aporte"
+                  ? "Editar valor guardado"
                   : selectedExpense
                     ? "Editar despesa"
                     : "Novo lançamento"}
@@ -2133,7 +2133,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
           <DialogHeader>
             <DialogTitle>{selectedGoal ? "Editar meta" : "Nova meta financeira"}</DialogTitle>
             <DialogDescription>
-              Crie um cofrinho para acompanhar objetivos e separar aportes quando fizer sentido.
+              Crie um cofrinho para acompanhar objetivos e guardar dinheiro quando fizer sentido.
             </DialogDescription>
           </DialogHeader>
 
@@ -2180,7 +2180,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                     <AlertDialogHeader>
                       <AlertDialogTitle>Excluir esta meta?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        Isso remove apenas o cofrinho. Os aportes já registrados continuam em
+                        Isso remove apenas o cofrinho. Os valores já guardados continuam em
                         Últimos lançamentos e não voltam automaticamente para o saldo.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
@@ -2252,7 +2252,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                     type="button"
                     onClick={() => addToContributionAmount(-10)}
                     className="flex size-9 items-center justify-center rounded-full bg-secondary text-foreground transition-colors hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
-                    aria-label="Diminuir aporte em 10 reais"
+                    aria-label="Diminuir valor em 10 reais"
                   >
                     <Minus className="size-4" />
                   </button>
@@ -2273,7 +2273,7 @@ function DashboardContent({ state }: { state: FinanceState }) {
                     type="button"
                     onClick={() => addToContributionAmount(10)}
                     className="flex size-9 items-center justify-center rounded-full bg-secondary text-foreground transition-colors hover:bg-secondary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25"
-                    aria-label="Aumentar aporte em 10 reais"
+                    aria-label="Aumentar valor em 10 reais"
                   >
                     <Plus className="size-4" />
                   </button>

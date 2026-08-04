@@ -431,7 +431,7 @@ function SettingsContent() {
                 </span>
               </div>
               <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
-                Quando ativo, o Dashboard mostra suas metas e o Fin pode sugerir aportes após
+                Quando ativo, o Dashboard mostra suas metas e o Fin pode sugerir guardar parte de uma receita após
                 receitas.
               </p>
             </div>

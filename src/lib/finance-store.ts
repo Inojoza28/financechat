@@ -413,7 +413,7 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
       description: isBalanceAdjustment
         ? expense.description?.trim() || "Saldo ajustado manualmente"
         : isGoalContribution
-          ? expense.description?.trim() || "Aporte para meta"
+          ? expense.description?.trim() || "Valor guardado na meta"
           : expense.description?.trim() || "Despesa",
       date: expense.date || localISODate(),
       createdAt: expense.createdAt || new Date().toISOString(),
@@ -866,7 +866,7 @@ export const financeActions = {
     if (amount <= 0) return null;
     const expense: Expense = {
       id: uid(),
-      description: input.description?.trim().slice(0, 120) || `Aporte para ${goal.name}`,
+      description: input.description?.trim().slice(0, 120) || `Guardado para ${goal.name}`,
       amount,
       category: "Meta",
       date: input.date || localISODate(),
