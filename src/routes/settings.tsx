@@ -416,7 +416,7 @@ function SettingsContent() {
         description="Ative metas financeiras quando quiser separar dinheiro para objetivos específicos."
       >
         <div className="rounded-2xl border border-border/55 bg-background/65 p-3 shadow-[inset_0_1px_0_hsl(var(--foreground)/0.035)] dark:bg-surface-muted/35 dark:shadow-none">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-[14px] font-semibold leading-tight">Metas financeiras</p>
@@ -436,7 +436,7 @@ function SettingsContent() {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 sm:w-[220px]">
+            <div className="grid w-full grid-cols-2 gap-1.5 rounded-2xl border border-border/55 bg-secondary/45 p-1.5 dark:bg-background/25 lg:w-[236px] lg:shrink-0">
               {[
                 { enabled: false, label: "Desativado", icon: CircleOff },
                 { enabled: true, label: "Ativado", icon: Check },
@@ -453,17 +453,17 @@ function SettingsContent() {
                       financeActions.setGoalsEnabled(option.enabled);
                       toast.success(option.enabled ? "Cofrinho ativado." : "Cofrinho desativado.");
                     }}
-                    className={`inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-3 text-[12.5px] font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 ${
+                    className={`inline-flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-xl border px-2 text-[12px] font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/25 sm:gap-2 sm:px-3 ${
                       selected
                         ? option.enabled
-                          ? "border-emerald-400/30 bg-emerald-500/[0.10] text-emerald-700 shadow-[0_8px_20px_hsl(155_70%_38%/0.08)] dark:bg-success/[0.13] dark:text-success dark:shadow-none"
-                          : "border-border/70 bg-secondary text-foreground"
-                        : "border-border/45 bg-surface/55 text-muted-foreground hover:border-primary/20 hover:bg-surface hover:text-foreground dark:bg-background/25 dark:hover:bg-background/40"
+                          ? "border-emerald-400/35 bg-emerald-500/[0.10] text-emerald-700 shadow-[0_8px_18px_hsl(155_70%_38%/0.07)] dark:bg-success/[0.13] dark:text-success dark:shadow-none"
+                          : "border-border/70 bg-background text-foreground shadow-[0_6px_16px_hsl(var(--foreground)/0.045)] dark:bg-surface-muted/60 dark:shadow-none"
+                        : "border-transparent bg-transparent text-muted-foreground hover:bg-background/70 hover:text-foreground dark:hover:bg-surface-muted/45"
                     }`}
                     aria-pressed={selected}
                   >
-                    <OptionIcon className="size-4 shrink-0" strokeWidth={2.35} />
-                    {option.label}
+                    <OptionIcon className="size-3.5 shrink-0 sm:size-4" strokeWidth={2.35} />
+                    <span className="truncate">{option.label}</span>
                   </button>
                 );
               })}
