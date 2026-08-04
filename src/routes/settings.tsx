@@ -431,7 +431,8 @@ function SettingsContent() {
                 </span>
               </div>
               <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
-                Quando ativo, o Dashboard mostra suas metas e o Fin pode sugerir guardar parte das entradas recebidas.
+                Quando ativo, você pode visualizar e cadastrar metas no Dashboard. O Fin também pode sugerir guardar
+                parte das entradas recebidas.
               </p>
             </div>
 
