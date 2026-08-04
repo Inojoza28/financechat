@@ -54,7 +54,7 @@ type ParsedExpenseEntry = {
 };
 
 type ParsedMixedEntry =
-  | { kind: "revenue"; amount: number; description: string }
+  | { kind: "revenue"; amount: number; description: string; source?: string }
   | ({ kind: "expense" } & ParsedExpenseEntry);
 
 const MONTH_ALIASES = [
@@ -86,6 +86,9 @@ const EXPENSE_WORDS = [
   "registre",
   "anota",
   "anote",
+  "devendo",
+  "devo",
+  "emprestado",
 ];
 
 const BASE_INCOME_WORDS = ["renda", "salario", "recebo"];
@@ -95,6 +98,9 @@ const EXTRA_REVENUE_WORDS = [
   "ganho extra",
   "recebi",
   "entrou",
+  "caiu",
+  "vendi",
+  "venda",
   "entrada extra",
   "bonus",
   "bonificacao",
@@ -306,6 +312,13 @@ const GREETING_PHRASES = [
   "opa",
   "e ai",
   "eae",
+  "tudo bem",
+  "tudo bem com voce",
+  "tudo bem com você",
+  "como voce esta",
+  "como você está",
+  "pode me ajudar",
+  "me ajuda",
   "fala",
   "salve",
 ];
@@ -341,6 +354,7 @@ const CATEGORY_HINTS: Record<string, string[]> = {
   Contas: ["internet", "luz", "agua", "telefone", "energia", "boleto", "conta"],
   Educação: ["curso", "faculdade", "livro", "escola", "educacao"],
   Compras: ["roupa", "tenis", "shopping", "presente", "compra"],
+  Dívidas: ["devendo", "devo", "emprestado", "emprestimo", "empréstimo"],
 };
 
 function answerSupportCommand() {
@@ -665,12 +679,17 @@ function isGreetingPhrase(text: string, state: FinanceState) {
     .replace(/\s+/g, " ")
     .trim();
   const parts = withoutAssistantName.split(" ").filter(Boolean);
-  if (parts.length > 4) return false;
+  if (parts.length > 7) return false;
 
   const greetingPattern =
-    /^(?:(?:oi|ola|opa|e ai|eae|fala|salve)\s+)?(?:bom dia|boa tarde|boa noite)$/;
+    /^(?:(?:oi|ola|opa|e ai|eae|fala|salve)\s*)?(?:(?:bom dia|boa tarde|boa noite)|(?:tudo bem(?: com voce)?|como voce esta)|(?:pode me ajudar|me ajuda))\??$/;
 
-  return greetingPattern.test(withoutAssistantName);
+  return (
+    greetingPattern.test(withoutAssistantName) ||
+    /^(?:oi|ola|opa|e ai|eae|fala|salve)(?:\s+(?:tudo bem(?: com voce)?|como voce esta|pode me ajudar|me ajuda))?\??$/.test(
+      withoutAssistantName,
+    )
+  );
 }
 
 function hasFinancialSignal(text: string, amount: number | null) {
@@ -709,6 +728,10 @@ function answerSmallTalk(text: string, amount: number | null, state: FinanceStat
   const compact = compactMessage(text);
   if (!compact || hasFinancialSignal(compact, amount)) return null;
 
+  if (isAssistantCapabilityQuestion(compact)) {
+    return answerAssistantCapabilities();
+  }
+
   if (isGreetingPhrase(compact, state)) {
     if (compact.startsWith("bom dia")) {
       return "Bom dia! Estou por aqui para te ajudar a registrar gastos, receitas e acompanhar seu saldo com clareza.";
@@ -740,6 +763,37 @@ function answerSmallTalk(text: string, amount: number | null, state: FinanceStat
   return null;
 }
 
+function isAssistantCapabilityQuestion(text: string) {
+  return (
+    /\bcomo\s+(?:voce|voces|vc)\s+(?:pode|podem|consegue|conseguem)\s+me\s+ajudar\b/.test(
+      text,
+    ) ||
+    /\b(?:o\s+que|que)\s+(?:voce|vc)\s+(?:faz|consegue\s+fazer|pode\s+fazer)\b/.test(text) ||
+    /\b(?:quais|qual)\s+(?:comandos|funcoes|funcionalidades|coisas)\s+(?:voce|vc)\s+(?:tem|faz|consegue)\b/.test(
+      text,
+    ) ||
+    /\b(?:me\s+mostra|mostre|explique|explica)\s+(?:o\s+que\s+)?(?:voce|vc)\s+(?:faz|consegue\s+fazer|pode\s+fazer)\b/.test(
+      text,
+    )
+  );
+}
+
+function answerAssistantCapabilities() {
+  return [
+    "Eu posso te ajudar a organizar sua vida financeira de um jeito simples e conversado.",
+    "",
+    "Você pode me pedir para:",
+    "- **Registrar gastos**, como `Gastei R$ 35 com almoço`.",
+    "- **Registrar receitas extras**, como `Ganhei R$ 100 de freelance`.",
+    "- **Consultar saldo e gastos**, como `Quanto gastei este mês?`.",
+    "- **Fazer projeções**, como `Quanto vou ter em setembro?`.",
+    "- **Simular decisões**, como `E se eu gastar R$ 50 amanhã?`.",
+    "- **Acompanhar despesas fixas, limites e metas**, quando estiverem configurados.",
+    "",
+    "Pode escrever do seu jeito. Eu organizo a intenção e te respondo com os cálculos mais importantes.",
+  ].join("\n");
+}
+
 function isConfirmation(text: string) {
   const normalized = normalize(text).trim();
   return CONFIRM_WORDS.some((word) => normalized === word || normalized.includes(word));
@@ -769,6 +823,8 @@ function isVagueFollowUpAboutBalance(text: string) {
 
 function inferCategory(text: string) {
   const normalized = normalize(text);
+  if (isDebtExpense(text)) return "Dívidas";
+
   const learnedCategory = categoryFromLearning(getFinanceState(), text);
   if (learnedCategory) return learnedCategory;
 
@@ -778,14 +834,52 @@ function inferCategory(text: string) {
   return "Geral";
 }
 
+function cleanEntityName(text: string) {
+  return text
+    .replace(/\b(hoje|ontem|amanha|amanhã|esse mes|este mes|nesse mes|neste mes)\b/gi, "")
+    .replace(/\b(mas|e|tambem|também)$/i, "")
+    .replace(/^[\s,.;:–-]+|[\s,.;:–-]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractDebtCreditor(text: string) {
+  const patterns = [
+    /(?:t[oô]|estou|fiquei)\s+devendo\s+(?:r\$\s*)?\d+(?:[.,]\d{1,2})?\s*(?:reais?)?\s+(?:pro|pra|para|ao|a)\s+([^,.;!?]+)/i,
+    /\bdevo\s+(?:r\$\s*)?\d+(?:[.,]\d{1,2})?\s*(?:reais?)?\s+(?:pro|pra|para|ao|a)\s+([^,.;!?]+)/i,
+    /peguei\s+emprestado\s+(?:r\$\s*)?\d+(?:[.,]\d{1,2})?\s*(?:reais?)?\s+(?:de|do|da)\s+([^,.;!?]+)/i,
+    /fiquei\s+devendo\s+(?:r\$\s*)?\d+(?:[.,]\d{1,2})?\s*(?:reais?)?\s+(?:no|na|pro|pra|para)\s+([^,.;!?]+)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const creditor = cleanEntityName(match?.[1] ?? "");
+    if (creditor) return creditor;
+  }
+
+  return null;
+}
+
+function isDebtExpense(text: string) {
+  const normalized = normalize(text);
+  return (
+    /\b(?:to|estou|fiquei)\s+devendo\b/.test(normalized) ||
+    /\bdevo\b.*\b(?:pro|pra|para|ao|a)\b/.test(normalized) ||
+    /\bpeguei\s+emprestado\b/.test(normalized)
+  );
+}
+
 function cleanDescription(text: string, amount: number) {
+  const creditor = extractDebtCreditor(text);
+  if (creditor) return `Dívida com ${creditor}`;
+
   const withoutAmount = stripTargetMonthText(text)
     .replace(/(?:r\$\s*)?\d{1,3}(?:\.\d{3})*(?:[,.]\d{1,2})?\s*(?:reais?|brl)?/i, "")
     .replace(
-      /\b(eu|mas|gastei|gasto|paguei|comprei|compra|despesa|adiciona|adicione|adicionar|coloca|coloque|colocar|registre|registra|anote|anota|lance)\b/gi,
+      /\b(eu|mas|gastei|gasto|paguei|comprei|compra|despesa|adiciona|adicione|adicionar|coloca|coloque|colocar|registre|registra|anote|anota|lance|to|tô|estou|fiquei|devendo|devo|peguei|emprestado)\b/gi,
       "",
     )
-    .replace(/\b(com|de|do|da|no|na|em|para)\b/gi, "")
+    .replace(/\b(com|de|do|da|no|na|em|para|pro|pra|ao)\b/gi, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -793,13 +887,16 @@ function cleanDescription(text: string, amount: number) {
 }
 
 function cleanExpenseSegment(segment: string, amount: number) {
+  const creditor = extractDebtCreditor(segment);
+  if (creditor) return `Dívida com ${creditor}`;
+
   const description = stripTargetMonthText(segment)
     .replace(
-      /\b(eu|mas|gastei|gasto|paguei|comprei|compra|despesa|adiciona|adicione|adicionar|coloca|coloque|colocar|registre|registra|anote|anota|lance)\b/gi,
+      /\b(eu|mas|gastei|gasto|paguei|comprei|compra|despesa|adiciona|adicione|adicionar|coloca|coloque|colocar|registre|registra|anote|anota|lance|to|tô|estou|fiquei|devendo|devo|peguei|emprestado)\b/gi,
       "",
     )
-    .replace(/^[\s,.;:–-]*(?:e\s+)?(?:com|de|do|da|no|na|em|para)\s+/i, "")
-    .replace(/\s+(?:e|,|;|\.|com|de|do|da|no|na|em|para)\s*$/i, "")
+    .replace(/^[\s,.;:–-]*(?:e\s+)?(?:com|de|do|da|no|na|em|para|pro|pra|ao)\s+/i, "")
+    .replace(/\s+(?:e|,|;|\.|com|de|do|da|no|na|em|para|pro|pra|ao)\s*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -841,6 +938,9 @@ function parseMultipleExpenseEntries(text: string): ParsedExpenseEntry[] {
 }
 
 function cleanRevenueDescription(text: string, amount: number) {
+  const source = extractRevenueSource(text, amount);
+  if (source) return source;
+
   const withoutAmount = text
     .replace(/(?:r\$\s*)?\d{1,3}(?:\.\d{3})*(?:[,.]\d{1,2})?\s*(?:reais?|brl)?/i, "")
     .replace(
@@ -853,10 +953,47 @@ function cleanRevenueDescription(text: string, amount: number) {
   return withoutAmount || `Receita extra de ${formatBRL(amount)}`;
 }
 
+function extractRevenueSource(text: string, amount: number) {
+  const amountPattern = String.raw`(?:r\$\s*)?${String(amount).replace(".", "[,.]")}(?:\s*reais?)?`;
+  const patterns = [
+    new RegExp(
+      String.raw`\b(?:recebi|ganhei|entrou|caiu)\s+${amountPattern}\s+(?:de|do|da|por|em|no|na)\s+([^,.;!?]+)`,
+      "i",
+    ),
+    new RegExp(
+      String.raw`\b(?:recebi|ganhei|entrou|caiu)\s+(?:r\$\s*)?\d+(?:[.,]\d{1,2})?\s*(?:reais?)?\s+(?:de|do|da|por|em|no|na)\s+([^,.;!?]+)`,
+      "i",
+    ),
+    /\bvendi\s+(?:um|uma|o|a)?\s*([^,.;!?]+?)\s+por\s+(?:r\$\s*)?\d+(?:[.,]\d{1,2})?/i,
+    /\bfiz\s+(?:r\$\s*)?\d+(?:[.,]\d{1,2})?\s*(?:reais?)?\s+(?:num|em um|em uma|com|de)\s+([^,.;!?]+)/i,
+    /\bentrei\s+com\s+(?:r\$\s*)?\d+(?:[.,]\d{1,2})?\s*(?:reais?)?\s*(?:de)?\s+([^,.;!?]+)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const source = cleanEntityName(match?.[1] ?? "")
+      .replace(/\b(extra|a mais|reais?)\b/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (source) {
+      if (/^produto$/i.test(source)) return "venda de produto";
+      return source;
+    }
+  }
+
+  if (/\bfreela|freelance\b/i.test(text)) return "freelance";
+  if (/\bbonus|bônus|bonificacao|bonificação\b/i.test(text)) return "bônus";
+  if (/\bcomissao|comissão\b/i.test(text)) return "comissão";
+  return null;
+}
+
 function cleanRevenueSegment(segment: string, amount: number) {
+  const source = extractRevenueSource(segment, amount);
+  if (source) return source;
+
   const description = segment
     .replace(
-      /\b(eu|ganhei|recebi|entrou|entrada|extra|bonus|bonificacao|comissao|freela|a mais|adicione|adicionar|adiciona|coloque|colocar|coloca|some|somar|soma|deposite|depositar|deposita|saldo|um|uma)\b/gi,
+      /\b(eu|mas|ganhei|recebi|entrou|entrada|extra|bonus|bônus|bonificacao|bonificação|comissao|comissão|freela|freelance|a mais|adicione|adicionar|adiciona|coloque|colocar|coloca|some|somar|soma|deposite|depositar|deposita|saldo|um|uma|reais?)\b/gi,
       "",
     )
     .replace(/^[\s,.;:–-]*(?:e\s+)?(?:de|do|da|no|na|em|com|para|ao)\s+/i, "")
@@ -867,7 +1004,9 @@ function cleanRevenueSegment(segment: string, amount: number) {
   return description || `Receita extra de ${formatBRL(amount)}`;
 }
 
-function parseMultipleRevenueEntries(text: string): Array<{ amount: number; description: string }> {
+function parseMultipleRevenueEntries(
+  text: string,
+): Array<{ amount: number; description: string; source?: string }> {
   const matches = Array.from(text.matchAll(MONEY_PATTERN)).filter(
     (match) => !isIgnoredMoneyMatch(text, match),
   );
@@ -890,9 +1029,12 @@ function parseMultipleRevenueEntries(text: string): Array<{ amount: number; desc
       return {
         amount,
         description: cleanRevenueSegment(segment, amount),
+        source: extractRevenueSource(segment, amount) ?? undefined,
       };
     })
-    .filter((entry): entry is { amount: number; description: string } => entry != null);
+    .filter(
+      (entry): entry is { amount: number; description: string; source?: string } => entry != null,
+    );
 }
 
 function parseMixedFinancialEntries(text: string): ParsedMixedEntry[] {
@@ -941,6 +1083,7 @@ function parseMixedFinancialEntries(text: string): ParsedMixedEntry[] {
         kind,
         amount,
         description: cleanRevenueSegment(segment, amount),
+        source: extractRevenueSource(segment, amount) ?? undefined,
       });
       return;
     }
@@ -967,6 +1110,14 @@ function isAddToBalanceIntent(text: string) {
     includesAny(text, ADD_TO_BALANCE_WORDS) &&
     includesAny(text, ["saldo", "receita", "entrada", "ganho", "ganhos"]) &&
     !includesAny(text, EXPENSE_WORDS)
+  );
+}
+
+function isExplicitExtraRevenuePattern(text: string) {
+  return (
+    /\bfiz\s+(?:r\$\s*)?\d+(?:[.,]\d{1,2})?\s*(?:reais?)?\s+(?:num|em um|em uma|com|de)\s+/.test(
+      normalize(text),
+    ) || /\b(?:vendi|caiu)\b/.test(normalize(text))
   );
 }
 
@@ -1475,10 +1626,62 @@ function requestBalanceAdjustment(text: string) {
   return `Entendi. Seu saldo registrado hoje está em **${formatBRL(currentBalance)}** e você quer ajustar para **${formatBRL(targetBalance)}**.\n\nPara sincronizar, vou ${actionText} como **Ajuste de saldo** em **Últimos lançamentos**. Esse registro é uma correção manual, não uma despesa ou receita comum.\n\nDeseja confirmar esse ajuste? Responda **sim** para confirmar ou **não** para cancelar.`;
 }
 
+function extractIncomeSourceQuery(text: string) {
+  const patterns = [
+    /\bquanto\s+(?:eu\s+)?(?:ganhei|recebi|fiz)\s+(?:de|do|da|com|em)\s+([^?.,;!]+)/i,
+    /\b(?:receitas|entradas|ganhos)\s+(?:de|do|da|com|em)\s+([^?.,;!]+)/i,
+    /\btotal\s+(?:de|do|da)\s+([^?.,;!]+)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    const source = cleanEntityName(match?.[1] ?? "")
+      .replace(new RegExp(`\\b(?:${monthAliasPattern()})\\b(?:\\s+(?:de\\s+)?20\\d{2})?`, "gi"), "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (source) return source;
+  }
+
+  return null;
+}
+
+function answerIncomeBySourceQuery(text: string, fallbackMonth: string) {
+  const source = extractIncomeSourceQuery(text);
+  if (!source) return null;
+
+  const target = parseTargetMonth(text);
+  if (target?.status === "past-explicit" || target?.status === "current-or-future") {
+    // consultas históricas e futuras já são seguras porque receitas extras ficam datadas.
+  }
+  const queryMonth = target?.status === "current-or-future" || target?.status === "past-explicit"
+    ? target.month
+    : fallbackMonth;
+  const normalizedSource = normalize(source);
+  const revenues = getFinanceState().revenues.filter((revenue) => {
+    if (monthKey(revenue.date) !== queryMonth) return false;
+    const sourceText = normalize(revenue.source ?? revenue.description);
+    const descriptionText = normalize(revenue.description);
+    return sourceText.includes(normalizedSource) || descriptionText.includes(normalizedSource);
+  });
+
+  const total = revenues.reduce((sum, revenue) => sum + revenue.amount, 0);
+  if (!revenues.length) {
+    return `Não encontrei receitas extras de **${source}** em ${monthLabel(queryMonth)}.\n\nQuando você registrar algo como \`Recebi R$ 200 de ${source}\`, eu salvo essa origem para consultas futuras.`;
+  }
+
+  const lines = revenues
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((revenue) => `- ${formatBRL(revenue.amount)} em ${paymentDateLabel(revenue.date)}`);
+
+  return `Você recebeu **${formatBRL(total)}** de **${source}** em ${monthLabel(queryMonth)}.\n\n${lines.join("\n")}`;
+}
+
 function registerRevenue(text: string, amount: number, month: string) {
+  const source = extractRevenueSource(text, amount);
   const revenue = financeActions.addRevenue({
     amount,
-    description: cleanRevenueDescription(text, amount),
+    description: source ?? cleanRevenueDescription(text, amount),
+    source,
     date: month === monthKey(localISODate()) ? null : `${month}-01`,
   });
 
@@ -1493,6 +1696,7 @@ function registerMultipleRevenues(text: string, month: string) {
     financeActions.addRevenue({
       amount: entry.amount,
       description: entry.description,
+      source: entry.source,
       date: month === monthKey(localISODate()) ? null : `${month}-01`,
     }),
   );
@@ -1536,6 +1740,7 @@ function registerMixedFinancialEntries(text: string, month: string) {
       const revenue = financeActions.addRevenue({
         amount: entry.amount,
         description: entry.description,
+        source: entry.source,
         date: month === monthKey(localISODate()) ? null : `${month}-01`,
       });
 
@@ -2439,6 +2644,66 @@ function isFutureMonthProjectionRequest(text: string) {
   );
 }
 
+function isStartOfPeriodProjectionRequest(text: string) {
+  if (includesAny(text, EXPENSE_WORDS) || includesAny(text, EXTRA_REVENUE_WORDS)) return false;
+  const asksProjection =
+    text.includes("quanto") ||
+    text.includes("saldo") ||
+    text.includes("como") ||
+    text.includes("com quanto") ||
+    text.includes("projecao") ||
+    text.includes("estimativa");
+  if (!asksProjection) return false;
+
+  return (
+    /\bcomo\s+(?:eu\s+)?vou\s+comecar\s+(?:em\s+)?/.test(text) ||
+    /\bcom\s+quanto\s+(?:eu\s+)?comeco\s+(?:em\s+)?/.test(text) ||
+    /\bsaldo\s+no\s+inicio\s+(?:de\s+)?/.test(text) ||
+    /\bquanto\s+(?:eu\s+)?vou\s+ter\s+no\s+primeiro\s+dia\s+(?:de\s+)?/.test(text) ||
+    /\bsaldo\s+no\s+dia\s+0?1\s+(?:de\s+)?/.test(text) ||
+    /\bdia\s+0?1\s+(?:de\s+)?/.test(text)
+  );
+}
+
+function dayBeforeISO(iso: string) {
+  const date = new Date(`${iso}T12:00:00`);
+  date.setDate(date.getDate() - 1);
+  return localISODate(date);
+}
+
+function answerStartOfPeriodProjection(text: string) {
+  const normalized = normalize(text);
+  if (!isStartOfPeriodProjectionRequest(normalized)) return null;
+
+  const target = parseTargetMonth(text);
+  if (!target) return null;
+
+  const currentMonth = monthKey(localISODate());
+  if (target.status === "past-explicit") {
+    return `**${target.label}** já passou. Posso consultar o histórico dessa competência, mas projeções de início de período são calculadas para o mês atual ou meses futuros.`;
+  }
+
+  if (target.status === "ambiguous-past") {
+    return `Você quer saber como começará **${target.label}**?\n\nComo esse mês já passou neste ano, me diga o ano desejado para eu projetar com segurança.`;
+  }
+
+  if (target.month < currentMonth) return null;
+
+  const targetStart = monthStartISO(target.month);
+  const cutoff = target.month === currentMonth ? localISODate() : dayBeforeISO(targetStart);
+  const forecast = forecastUntilDate(getFinanceState(), cutoff);
+  const incomeText =
+    forecast.projectedIncome > 0
+      ? `${formatBRL(forecast.projectedIncome)} em receitas previstas antes da competência`
+      : "nenhuma entrada prevista antes da competência";
+  const expenseText =
+    forecast.projectedExpenses > 0
+      ? `${formatBRL(forecast.projectedExpenses)} em saídas previstas antes da competência`
+      : "nenhuma saída prevista antes da competência";
+
+  return `Projetando até **${paymentDateLabel(cutoff)}**, a estimativa é você começar **${monthLabel(target.month)}** com **${formatBRL(forecast.projectedBalance)}**.\n\nComo cheguei nesse valor:\n- Saldo acumulado atual: **${formatBRL(forecast.currentBalance)}**\n- Entradas previstas até lá: **${incomeText}**\n- Saídas previstas até lá: **${expenseText}**\n\nEsse cálculo mostra o saldo antes de considerar os recebimentos e despesas da nova competência. É uma projeção: novos lançamentos podem mudar esse valor.`;
+}
+
 function answerSpecificFutureMonthProjection(text: string) {
   const target = parseTargetMonth(text);
   if (!target || !isFutureMonthProjectionRequest(normalize(text))) return null;
@@ -2851,6 +3116,16 @@ export function answerLocally(
     return { text: spendingQuery };
   }
 
+  const incomeSourceQuery = answerIncomeBySourceQuery(text, month);
+  if (incomeSourceQuery) {
+    return { text: incomeSourceQuery };
+  }
+
+  const startOfPeriodProjection = answerStartOfPeriodProjection(text);
+  if (startOfPeriodProjection) {
+    return { text: startOfPeriodProjection };
+  }
+
   const paymentProjection = answerPaymentProjection(text, recentText);
   if (paymentProjection) {
     return { text: paymentProjection };
@@ -2894,7 +3169,9 @@ export function answerLocally(
 
   if (
     amount &&
-    (includesAny(normalized, EXTRA_REVENUE_WORDS) || isAddToBalanceIntent(normalized))
+    (includesAny(normalized, EXTRA_REVENUE_WORDS) ||
+      isAddToBalanceIntent(normalized) ||
+      isExplicitExtraRevenuePattern(text))
   ) {
     const multipleRevenues = registerMultipleRevenues(text, month);
     if (multipleRevenues) return { text: multipleRevenues };

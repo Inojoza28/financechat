@@ -106,6 +106,7 @@ export type FixedExpenseOccurrenceOverride = {
 export type Revenue = {
   id: string;
   description: string;
+  source?: string;
   amount: number;
   date: string; // ISO date (yyyy-mm-dd)
   createdAt: string;
@@ -172,6 +173,7 @@ export const CATEGORIES = [
   "Contas",
   "Educação",
   "Compras",
+  "Dívidas",
   "Geral",
 ] as const;
 
@@ -484,6 +486,7 @@ function normalizeFinanceState(parsed: Partial<FinanceState>): FinanceState {
     ...revenue,
     amount: normalizeMoney(revenue.amount),
     description: revenue.description?.trim() || "Receita extra",
+    source: typeof revenue.source === "string" ? revenue.source.trim().slice(0, 80) : undefined,
     date: revenue.date || localISODate(),
     createdAt: revenue.createdAt || new Date().toISOString(),
   }));
@@ -746,10 +749,16 @@ export const financeActions = {
     write({ ...s, fixedExpenses: [...s.fixedExpenses, fixedExpense] });
     return fixedExpense;
   },
-  addRevenue(input: { description: string; amount: number; date?: string | null }): Revenue {
+  addRevenue(input: {
+    description: string;
+    amount: number;
+    date?: string | null;
+    source?: string | null;
+  }): Revenue {
     const revenue: Revenue = {
       id: uid(),
       description: input.description.trim().slice(0, 120) || "Receita extra",
+      source: input.source?.trim().slice(0, 80) || undefined,
       amount: normalizeMoney(input.amount),
       date: input.date || localISODate(),
       createdAt: new Date().toISOString(),
@@ -1100,6 +1109,10 @@ export const financeActions = {
                 patch.description != null
                   ? patch.description.trim().slice(0, 120) || "Receita extra"
                   : revenue.description,
+              source:
+                patch.source !== undefined
+                  ? patch.source?.trim().slice(0, 80) || undefined
+                  : revenue.source,
               date: patch.date || revenue.date,
             }
           : revenue,
@@ -1888,11 +1901,11 @@ export function buildCSV(state: FinanceState) {
       ]),
     [],
     ["RECEITAS EXTRAS"],
-    ["Data", "Descrição", "Valor"],
+    ["Data", "Descrição", "Origem", "Valor"],
     ...state.revenues
       .slice()
       .sort((a, b) => a.date.localeCompare(b.date))
-      .map((r) => [r.date, r.description, r.amount.toFixed(2)]),
+      .map((r) => [r.date, r.description, r.source ?? "", r.amount.toFixed(2)]),
   ];
   return rows
     .map((r) => r.map((c) => `"${String(c ?? "").replace(/"/g, '""')}"`).join(";"))
@@ -1949,7 +1962,13 @@ export function buildTXT(state: FinanceState) {
       ? state.revenues
           .slice()
           .sort((a, b) => a.date.localeCompare(b.date))
-          .map((r) => `  ${r.date}  ${formatBRL(r.amount).padStart(12)}  ${r.description}`)
+          .map((r) => {
+            const source =
+              r.source && normalizeText(r.source) !== normalizeText(r.description)
+                ? ` (${r.source})`
+                : "";
+            return `  ${r.date}  ${formatBRL(r.amount).padStart(12)}  ${r.description}${source}`;
+          })
       : ["  nenhuma receita extra registrada"]),
     "",
   ];
