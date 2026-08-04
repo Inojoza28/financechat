@@ -190,6 +190,7 @@ export function ChatWindow() {
   const voiceFinalTranscriptRef = useRef("");
   const voiceReceivedTranscriptRef = useRef(false);
   const voiceSessionIdRef = useRef(0);
+  const lastUserInteractionAtRef = useRef(Date.now());
   const [input, setInput] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(() => currentMonthKey());
   const [status, setStatus] = useState<"ready" | "submitted">("ready");
@@ -220,6 +221,9 @@ export function ChatWindow() {
 
   const busy = status === "submitted";
   const summary = summarize(state, selectedMonth);
+  const markUserInteraction = () => {
+    lastUserInteractionAtRef.current = Date.now();
+  };
   const summaryLimitPercent =
     summary.spendingLimit && summary.spendingLimit > 0
       ? (summary.spent / summary.spendingLimit) * 100
@@ -481,17 +485,30 @@ export function ChatWindow() {
       return;
     }
 
-    const timeoutId = window.setTimeout(() => {
-      setActiveSmartSuggestion(contextualAction);
-      setSeenSmartSuggestions((current) => {
-        if (current.includes(contextualAction.id)) return current;
-        const next = [...current, contextualAction.id].slice(-120);
-        writeSeenSmartSuggestions(next);
-        return next;
-      });
-    }, SMART_SUGGESTION_IDLE_MS);
+    let timeoutId: number | undefined;
+    const scheduleSuggestion = (delay: number) => {
+      timeoutId = window.setTimeout(() => {
+        const idleFor = Date.now() - lastUserInteractionAtRef.current;
+        if (idleFor < SMART_SUGGESTION_IDLE_MS) {
+          scheduleSuggestion(SMART_SUGGESTION_IDLE_MS - idleFor);
+          return;
+        }
 
-    return () => window.clearTimeout(timeoutId);
+        setActiveSmartSuggestion(contextualAction);
+        setSeenSmartSuggestions((current) => {
+          if (current.includes(contextualAction.id)) return current;
+          const next = [...current, contextualAction.id].slice(-120);
+          writeSeenSmartSuggestions(next);
+          return next;
+        });
+      }, delay);
+    };
+
+    scheduleSuggestion(SMART_SUGGESTION_IDLE_MS);
+
+    return () => {
+      if (timeoutId != null) window.clearTimeout(timeoutId);
+    };
   }, [
     contextualAction,
     busy,
@@ -508,6 +525,7 @@ export function ChatWindow() {
         : "";
 
   const send = (text: string) => {
+    markUserInteraction();
     const trimmed = normalizeSpokenMoneyText(text.trim());
     if (!trimmed || busy) return;
 
@@ -671,7 +689,11 @@ export function ChatWindow() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    <div
+      className="flex h-full min-h-0 flex-col"
+      onKeyDown={markUserInteraction}
+      onPointerDown={markUserInteraction}
+    >
       <div className="glass border-b border-border/50">
         <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0 space-y-0.5">
@@ -720,7 +742,10 @@ export function ChatWindow() {
           </div>
           <select
             value={selectedMonth}
-            onChange={(event) => setSelectedMonth(event.target.value)}
+            onChange={(event) => {
+              markUserInteraction();
+              setSelectedMonth(event.target.value);
+            }}
             className="h-9 rounded-full border border-border/70 bg-surface px-3 text-[13px] font-medium shadow-soft outline-none transition-colors hover:border-primary/30 focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-ring/20"
             aria-label="Filtrar conversa por competência"
           >
@@ -751,7 +776,10 @@ export function ChatWindow() {
                   <button
                     key={suggestion}
                     type="button"
-                    onClick={() => send(suggestion)}
+                    onClick={() => {
+                      markUserInteraction();
+                      send(suggestion);
+                    }}
                     className="rounded-full border border-border/70 bg-surface/90 px-3 py-1.5 text-[12.5px] text-muted-foreground shadow-soft transition-all duration-300 hover:-translate-y-0.5 hover:border-primary/25 hover:text-foreground sm:px-3.5 sm:py-2 sm:text-[13px]"
                   >
                     {suggestion}
@@ -834,7 +862,10 @@ export function ChatWindow() {
                           </div>
                           <button
                             type="button"
-                            onClick={() => setActiveSmartSuggestion(null)}
+                            onClick={() => {
+                              markUserInteraction();
+                              setActiveSmartSuggestion(null);
+                            }}
                             className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-white/72 transition-colors hover:bg-white/14 hover:text-white"
                             aria-label="Fechar sugestão"
                           >
@@ -850,6 +881,7 @@ export function ChatWindow() {
                                   key={action.command}
                                   type="button"
                                   onClick={() => {
+                                    markUserInteraction();
                                     setActiveSmartSuggestion(null);
                                     send(action.command);
                                   }}
@@ -997,7 +1029,10 @@ export function ChatWindow() {
           >
             <PromptInputTextarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                markUserInteraction();
+                setInput(e.target.value);
+              }}
               placeholder={
                 voiceStatus === "recording"
                   ? "Estou ouvindo..."
@@ -1012,7 +1047,10 @@ export function ChatWindow() {
                   variant="ghost"
                   size="icon-sm"
                   className="size-9 rounded-full text-muted-foreground hover:bg-secondary hover:text-foreground"
-                  onClick={insertSupportCommand}
+                  onClick={() => {
+                    markUserInteraction();
+                    insertSupportCommand();
+                  }}
                   disabled={busy}
                   aria-label="Inserir comando para apoiar o projeto"
                   title="Apoiar o projeto"
@@ -1032,7 +1070,10 @@ export function ChatWindow() {
                         ? "bg-secondary text-primary"
                         : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                   }`}
-                  onClick={toggleVoiceInput}
+                  onClick={() => {
+                    markUserInteraction();
+                    toggleVoiceInput();
+                  }}
                   disabled={busy || voiceStatus === "processing"}
                   aria-label={
                     voiceStatus === "recording"
