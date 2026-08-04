@@ -768,6 +768,7 @@ function isAssistantCapabilityQuestion(text: string) {
     /\bcomo\s+(?:voce|voces|vc)\s+(?:pode|podem|consegue|conseguem)\s+me\s+ajudar\b/.test(
       text,
     ) ||
+    /\bcomo\s+(?:voce|vc)\s+(?:funciona|pode\s+funcionar|trabalha|opera)\b/.test(text) ||
     /\b(?:o\s+que|que)\s+(?:voce|vc)\s+(?:faz|consegue\s+fazer|pode\s+fazer)\b/.test(text) ||
     /\b(?:quais|qual)\s+(?:comandos|funcoes|funcionalidades|coisas)\s+(?:voce|vc)\s+(?:tem|faz|consegue)\b/.test(
       text,
