@@ -262,7 +262,7 @@ export function ChatWindow() {
   const lastMessage = messages.at(-1);
   const lastAssistantMessage = lastMessage?.role === "assistant" ? lastMessage : null;
   const contextualAction = useMemo<QuickAction | null>(() => {
-    if (!state.showSmartSuggestions || !lastAssistantMessage) return null;
+    if (!state.showSmartSuggestions || !lastAssistantMessage || state.pendingAction) return null;
 
     const now = new Date();
     const nowTime = now.getTime();
@@ -290,6 +290,11 @@ export function ChatWindow() {
     const answeredDailySummary = assistantText.includes("resumo de hoje");
     const answeredMonthlySummary =
       assistantText.includes("resumo atualizado") || assistantText.includes("gasto no mês");
+    const isFallbackResponse =
+      assistantText.includes("não consegui entender") ||
+      assistantText.includes("nao consegui entender");
+    if (isFallbackResponse) return null;
+
     const hasLimit = summary.spendingLimit != null && summary.spendingLimit > 0;
     const currentMonthExpenses = state.expenses.filter(
       (expense) =>
@@ -478,6 +483,7 @@ export function ChatWindow() {
     state.expenses,
     state.fixedExpenseOccurrenceOverrides,
     state.fixedExpenses,
+    state.pendingAction,
     state.showSmartSuggestions,
     summary.balance,
     summary.byCategory.length,
@@ -492,6 +498,7 @@ export function ChatWindow() {
       !state.showSmartSuggestions ||
       !lastAssistantMessage ||
       !contextualAction ||
+      state.pendingAction ||
       input.trim() ||
       busy
     ) {
@@ -500,7 +507,9 @@ export function ChatWindow() {
     }
 
     if (seenSmartSuggestions.includes(contextualAction.id)) {
-      setActiveSmartSuggestion(null);
+      setActiveSmartSuggestion((current) =>
+        current?.id === contextualAction.id ? current : null,
+      );
       return;
     }
 
@@ -530,10 +539,12 @@ export function ChatWindow() {
     };
   }, [
     contextualAction,
+    activeSmartSuggestion,
     busy,
     input,
     lastAssistantMessage,
     seenSmartSuggestions,
+    state.pendingAction,
     state.showSmartSuggestions,
   ]);
   const voiceFeedbackLabel =
