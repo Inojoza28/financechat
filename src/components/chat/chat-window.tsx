@@ -53,6 +53,7 @@ import {
   monthLabel,
   offsetMonthKey,
   summarize,
+  type PendingAssistantAction,
   useFinance,
 } from "@/lib/finance-store";
 import { answerLocally, buildTextMessage } from "@/lib/local-assistant";
@@ -148,6 +149,24 @@ function messageText(message?: UIMessage) {
       .join("")
       .trim() ?? ""
   );
+}
+
+function confirmationDescription(pending: PendingAssistantAction | null) {
+  if (!pending) return "";
+
+  if (pending.type === "balanceAdjustment") {
+    return "Confirme para criar o ajuste no histórico.";
+  }
+
+  if (pending.type === "futureExpense") {
+    return "Confirme para registrar essa despesa futura.";
+  }
+
+  if (pending.type === "goalContribution") {
+    return "Confirme para guardar esse valor na meta.";
+  }
+
+  return "Confirme para excluir esse lançamento.";
 }
 
 function dateTimeValue(value?: string) {
@@ -574,6 +593,35 @@ export function ChatWindow() {
     }, responseDelay);
   };
 
+  const submitPendingConfirmation = (command: "sim" | "não", label: "Confirmar" | "Cancelar") => {
+    markUserInteraction();
+    if (busy || !getFinanceState().pendingAction) return;
+
+    const contextMessages = messages;
+    const userMessage = buildTextMessage("user", label) as UIMessage;
+    const responseDelay = 520;
+
+    setInput("");
+    setActiveSmartSuggestion(null);
+    setStatus("submitted");
+    setMessages((current) => [...current, userMessage]);
+
+    window.setTimeout(() => {
+      let responseText = FALLBACK_RESPONSE;
+      try {
+        const response = answerLocally(command, selectedMonth, { messages: contextMessages });
+        responseText = response.text?.trim() || FALLBACK_RESPONSE;
+      } catch (error) {
+        console.error("Erro ao confirmar ação pendente:", error);
+      }
+      setMessages((current) => [
+        ...current,
+        buildTextMessage("assistant", responseText) as UIMessage,
+      ]);
+      setStatus("ready");
+    }, responseDelay);
+  };
+
   const copyPixKey = async (messageId: string) => {
     try {
       await navigator.clipboard.writeText(PIX_KEY);
@@ -796,6 +844,10 @@ export function ChatWindow() {
               const showSupportCopy =
                 message.role === "assistant" && text.includes("Pix para apoiar o HeyFin");
               const supportCopied = copiedSupportMessageId === message.id;
+              const showConfirmationActions =
+                message.role === "assistant" &&
+                lastAssistantMessage?.id === message.id &&
+                Boolean(state.pendingAction);
               const showSuggestionActions =
                 message.role === "assistant" &&
                 lastAssistantMessage?.id === message.id &&
@@ -841,6 +893,36 @@ export function ChatWindow() {
                                 <Copy className="size-4" />
                               )}
                               <span>{supportCopied ? "Copiado" : "Copiar"}</span>
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                      {showConfirmationActions && (
+                        <div className="mt-3 rounded-2xl border border-border/70 bg-surface/80 p-3 shadow-[0_12px_30px_-26px_oklch(0.25_0.03_260_/_35%)] dark:bg-secondary/45">
+                          <p className="mb-2 text-[12px] font-medium text-muted-foreground">
+                            {confirmationDescription(state.pendingAction)}
+                          </p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => submitPendingConfirmation("sim", "Confirmar")}
+                              disabled={busy}
+                              className="h-10 rounded-xl text-[13px] font-semibold"
+                            >
+                              <Check className="size-3.5" />
+                              Confirmar
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => submitPendingConfirmation("não", "Cancelar")}
+                              disabled={busy}
+                              className="h-10 rounded-xl border-border/80 bg-background/70 text-[13px] font-semibold text-muted-foreground hover:bg-secondary hover:text-foreground"
+                            >
+                              <X className="size-3.5" />
+                              Cancelar
                             </Button>
                           </div>
                         </div>

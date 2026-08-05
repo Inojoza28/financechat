@@ -128,6 +128,34 @@ const INCOME_RECURRENCE_HINTS = [
   "15 dias",
 ];
 
+const INCOME_DATE_UPDATE_WORDS = [
+  "ajustar",
+  "ajuste",
+  "mudar",
+  "mude",
+  "alterar",
+  "altere",
+  "atualizar",
+  "atualize",
+  "trocar",
+  "troque",
+  "passa",
+  "passou",
+];
+
+const INCOME_DATE_TARGET_WORDS = [
+  "data da minha renda",
+  "data da renda",
+  "dia da minha renda",
+  "dia da renda",
+  "data do meu salario",
+  "dia do meu salario",
+  "recebimento",
+  "pagamento",
+  "renda",
+  "salario",
+];
+
 const EXTRA_REVENUE_WORDS = [
   "ganhei",
   "ganho extra",
@@ -1338,6 +1366,78 @@ function isIncomeRegistrationIntent(text: string) {
   return hasRegistrationAction || (hasAmount && (hasRecurringHint || hasPersonalIncomePhrase));
 }
 
+function isIncomePaydayUpdateIntent(text: string) {
+  const normalized = normalize(text);
+  const days = parsePaydays(text);
+  if (!days.length) return false;
+  if (/\b(quanto|qual|quando|como|porque|por que)\b/.test(normalized)) return false;
+
+  const hasUpdateAction = includesAny(normalized, INCOME_DATE_UPDATE_WORDS);
+  const hasIncomeTarget = includesAny(normalized, INCOME_DATE_TARGET_WORDS);
+  const hasIncomeDeclaration =
+    /\b(minha renda|meu salario|a renda|o salario)\s+(agora\s+)?(cai|entra|passa a cair|passa a entrar)\s+no dia\b/.test(
+      normalized,
+    ) ||
+    /\b(eu\s+)?recebo\s+no dia\b/.test(normalized) ||
+    /\bquero\s+receber\s+no dia\b/.test(normalized);
+
+  return (hasUpdateAction && hasIncomeTarget) || hasIncomeDeclaration;
+}
+
+function updateIncomePayday(text: string) {
+  const income = getFinanceState().income;
+  if (!income) {
+    return "Você ainda não tem uma renda recorrente cadastrada. Primeiro me diga o valor, por exemplo: `Minha renda é R$ 5.000 por mês`.";
+  }
+
+  const days = parsePaydays(text);
+  const day = days[0] ?? null;
+  if (!day) {
+    return "Consigo ajustar a data da sua renda. Me diga o dia de recebimento, por exemplo: `Ajuste a data da minha renda para o dia 10`.";
+  }
+
+  if (income.period === "biweekly") {
+    const normalized = normalize(text);
+    const isSecondPayment = /\b(segundo|segunda|2o|2º|segunda data|segundo pagamento)\b/.test(
+      normalized,
+    );
+    const isFirstPayment = /\b(primeiro|primeira|1o|1º|primeira data|primeiro pagamento)\b/.test(
+      normalized,
+    );
+
+    if (!isFirstPayment && !isSecondPayment) {
+      return `Sua renda está configurada como quinzenal, com recebimentos nos dias **${income.firstPayday ?? 5}** e **${income.secondPayday ?? 20}**.\n\nVocê quer alterar a primeira ou a segunda data? Exemplo: \`Mude a primeira data da minha renda para o dia ${day}\`.`;
+    }
+
+    financeActions.setIncome(income.amount, "biweekly", {
+      autoDeposit: income.autoDeposit ?? true,
+      startsAtMonth: income.startsAtMonth,
+      firstAmount: income.firstAmount ?? income.amount,
+      secondAmount: income.secondAmount ?? 0,
+      firstPayday: isSecondPayment ? income.firstPayday : day,
+      secondPayday: isSecondPayment ? day : income.secondPayday,
+    });
+  } else if (income.period === "weekly") {
+    const today = new Date(localISODate());
+    const reference = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), day));
+    financeActions.setIncome(income.amount, "weekly", {
+      autoDeposit: income.autoDeposit ?? true,
+      startsAtMonth: income.startsAtMonth,
+      firstPaymentDate: reference.toISOString().slice(0, 10),
+    });
+  } else {
+    financeActions.setIncome(income.amount, "monthly", {
+      autoDeposit: income.autoDeposit ?? true,
+      startsAtMonth: income.startsAtMonth,
+      payday: day,
+    });
+  }
+
+  const updated = getFinanceState().income;
+  const detail = updated ? incomeLabel(updated) : `dia ${day}`;
+  return `Pronto, atualizei a data da sua renda para **dia ${String(day).padStart(2, "0")}**.\n\nConfiguração atual: ${detail}.`;
+}
+
 function registerIncome(text: string) {
   const amounts = parseMoneyValues(text);
   const amount = amounts[0] ?? null;
@@ -1677,7 +1777,7 @@ function requestBalanceAdjustment(text: string) {
       ? `criar um ajuste de entrada de **${formatBRL(difference)}**`
       : `criar um ajuste de saída de **${formatBRL(Math.abs(difference))}**`;
 
-  return `Entendi. Seu saldo registrado hoje está em **${formatBRL(currentBalance)}** e você quer ajustar para **${formatBRL(targetBalance)}**.\n\nPara sincronizar, vou ${actionText} como **Ajuste de saldo** em **Últimos lançamentos**. Esse registro é uma correção manual, não uma despesa ou receita comum.\n\nDeseja confirmar esse ajuste? Responda **sim** para confirmar ou **não** para cancelar.`;
+  return `Entendi. Seu saldo registrado hoje está em **${formatBRL(currentBalance)}** e você quer ajustar para **${formatBRL(targetBalance)}**.\n\nPara sincronizar, vou ${actionText} como **Ajuste de saldo** em **Últimos lançamentos**. Esse registro é uma correção manual, não uma despesa ou receita comum.\n\nDeseja confirmar esse ajuste?`;
 }
 
 function extractIncomeSourceQuery(text: string) {
@@ -1874,7 +1974,7 @@ function registerExpense(text: string, amount: number, month: string) {
       createdAt: new Date().toISOString(),
     });
 
-    return `Você está se referindo a **${target.label}**?\n\nComo esse mês já passou neste ano, preciso confirmar antes de registrar a despesa de **${formatBRL(amount)}** para essa competência futura. Responda **sim** para confirmar ou **não** para cancelar.`;
+    return `Você está se referindo a **${target.label}**?\n\nComo esse mês já passou neste ano, preciso confirmar antes de registrar a despesa de **${formatBRL(amount)}** para essa competência futura.`;
   }
 
   const targetMonth = target?.month ?? month;
@@ -1990,7 +2090,7 @@ function removeExpense(text: string, month: string) {
     createdAt: new Date().toISOString(),
   });
 
-  return `Só para confirmar: você quer excluir **${expenseLine(expense)}**?\n\nResponda **sim** para confirmar ou **não** para manter o lançamento.`;
+  return `Só para confirmar: você quer excluir **${expenseLine(expense)}**?`;
 }
 
 function answerPendingAction(text: string, month: string) {
@@ -2346,7 +2446,7 @@ function buildGoalContributionSuggestion(revenueAmount: number, month: string) {
     createdAt: new Date().toISOString(),
   });
 
-  return `\n\nVocê acabou de receber **${formatBRL(revenueAmount)}**. Que tal separar **${formatBRL(finalSuggestedAmount)}** para sua meta **${candidate.name}**? Responda **sim** para confirmar ou **não** para deixar para depois.`;
+  return `\n\nVocê acabou de receber **${formatBRL(revenueAmount)}**. Que tal separar **${formatBRL(finalSuggestedAmount)}** para sua meta **${candidate.name}**?`;
 }
 
 function pickGoalForContributionSuggestion(
@@ -3126,6 +3226,10 @@ export function answerLocally(
 
   if (isSpendingPaceQuestion(normalized)) {
     return { text: answerSpendingPace(month) };
+  }
+
+  if (isIncomePaydayUpdateIntent(text)) {
+    return { text: updateIncomePayday(text) };
   }
 
   if (isIncomeRegistrationIntent(text)) {
