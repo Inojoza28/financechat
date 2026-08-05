@@ -3094,49 +3094,158 @@ function isImpactSimulationRequest(text: string) {
   const hasConditionalIntent = /\b(e\s+se|se\s+eu)\b/.test(text);
   const hasSimulationIntent = /\b(simula|simule|simular|simulacao)\b/.test(text);
   const hasDecisionIntent = /\b(posso|consigo|da para|vale a pena)\b/.test(text);
-  const hasPurchaseIntent =
-    /\b(comprar|compra|gastar|gastasse|gastaria|gasto|pagar|pagamento|adquirir|item|produto)\b/.test(
+  const hasScenarioIntent =
+    /\b(comprar|compra|gastar|gastasse|gastaria|gasto|pagar|pagamento|adquirir|item|produto|ganhar|ganhasse|receber|recebesse|entrar|entrasse|renda|salario|investir|aplicar|guardar|separar|meta|cofrinho|parcelar|parcelado|parcela|remover|tirar|excluir)\b/.test(
       text,
     );
 
-  return hasPurchaseIntent && (hasConditionalIntent || hasSimulationIntent || hasDecisionIntent);
+  return hasScenarioIntent && (hasConditionalIntent || hasSimulationIntent || hasDecisionIntent);
 }
 
-function simulateSpend(text: string, month: string) {
-  const amount = parseMoney(text);
-  if (!amount) return null;
+function parseInstallmentCount(text: string) {
+  const normalized = normalize(text);
+  const match = normalized.match(/\b(?:em\s+)?(\d{1,2})\s*(?:x|vezes|parcelas?)\b/);
+  const count = Number(match?.[1] ?? 0);
+  return Number.isFinite(count) && count > 1 ? count : null;
+}
 
-  const s = summarize(getFinanceState(), month);
-  const after = s.balance - amount;
-  const balanceVerdict =
-    after >= 0
-      ? `Depois dessa compra, seu saldo ficaria em **${formatBRL(after)}**.`
-      : `Essa compra deixaria seu saldo em **${formatBRL(after)}**, ou seja, abaixo de zero.`;
+function simulationTarget(text: string, month: string) {
+  const state = getFinanceState();
+  const normalized = normalize(text);
+  const wantsNextPayment = /\b(proximo pagamento|proximo salario|proximo recebimento|quando receber|apos receber|depois de receber)\b/.test(
+    normalized,
+  );
 
-  if (!s.spendingLimit) {
-    return `Simulei esse gasto sem registrar nada no histórico.\n\nValor da compra: **${formatBRL(amount)}**\nSaldo atual: **${formatBRL(s.balance)}**\nSaldo após a compra: **${formatBRL(after)}**\n\n${after >= 0 ? "Pelo saldo disponível, ela cabe no momento." : "Pelo saldo disponível, eu não recomendaria agora."}\n\nVocê ainda não definiu um limite de gastos. Se quiser uma análise mais precisa do orçamento do período, cadastre um limite em **Ajustes**.`;
+  if (wantsNextPayment) {
+    const payment = nextIncomePayment(state.income);
+    if (payment) {
+      return {
+        label: `após o próximo recebimento em ${paymentDateLabel(payment.date)}`,
+        baseBalance: forecastUntilDate(state, payment.date).projectedBalance,
+      };
+    }
   }
 
-  const projectedSpent = s.spent + amount;
+  const targetMonth = parseTargetMonth(text);
+  if (targetMonth?.status === "current-or-future") {
+    const forecast = forecastFutureMonth(state, targetMonth.month);
+    return {
+      label: `ao final de ${monthLabel(targetMonth.month)}`,
+      baseBalance: forecast.projectedBalance,
+    };
+  }
+
+  return {
+    label: `considerando seu saldo atual em ${monthLabel(month)}`,
+    baseBalance: summarize(state, month).balance,
+  };
+}
+
+function simulationKind(text: string) {
+  const normalized = normalize(text);
+  if (
+    /\b(renda|salario)\b/.test(normalized) &&
+    /\b(fosse|ficasse|passasse|aumentasse|diminuísse|diminuisse|mudar|alterar|receber)\b/.test(
+      normalized,
+    )
+  ) {
+    return "incomeChange";
+  }
+  if (/\b(ganhar|ganhasse|receber|recebesse|entrar|entrasse|entrada|receita)\b/.test(normalized)) {
+    return "income";
+  }
+  if (/\b(investir|aplicar|investimento|aplicacao)\b/.test(normalized)) return "reserve";
+  if (/\b(guardar|separar|meta|cofrinho|juntar)\b/.test(normalized)) return "reserve";
+  if (/\b(remover|tirar|excluir|cancelar)\b.*\b(gasto|despesa|compra|pagamento)\b/.test(normalized)) {
+    return "removeExpense";
+  }
+  return "expense";
+}
+
+function simulateSpend(text: string, month: string, options?: { explainMissingAmount?: boolean }) {
+  const amount = parseMoney(text);
+  if (!amount) {
+    return options?.explainMissingAmount
+      ? "Consigo simular cenários financeiros sem registrar nada no histórico. Me diga um valor e o cenário, por exemplo: `E se eu gastar R$ 75 no próximo pagamento?`, `E se eu receber R$ 500 em setembro?` ou `E se eu guardar R$ 100 na meta?`."
+      : null;
+  }
+
+  const state = getFinanceState();
+  const s = summarize(state, month);
+  const target = simulationTarget(text, month);
+  const kind = simulationKind(text);
+  const installments = parseInstallmentCount(text);
+  const currentIncome = state.income?.amount ?? 0;
+  const simulatedImpact =
+    kind === "incomeChange"
+      ? Math.round((amount - currentIncome) * 100) / 100
+      : installments && kind === "expense"
+        ? Math.round((amount / installments) * 100) / 100
+        : amount;
+  const signedImpact =
+    kind === "income" || kind === "removeExpense" || kind === "incomeChange"
+      ? simulatedImpact
+      : -simulatedImpact;
+  const projectedBalance = target.baseBalance + signedImpact;
+  const actionLabel =
+    kind === "incomeChange"
+      ? "alteração de renda"
+      : kind === "income"
+      ? "entrada"
+      : kind === "removeExpense"
+        ? "remoção de despesa"
+        : kind === "reserve"
+          ? "valor separado"
+          : "gasto";
+  const amountLine =
+    kind === "incomeChange"
+      ? `Renda atual: **${formatBRL(currentIncome)}**\nRenda simulada: **${formatBRL(amount)}**\nDiferença considerada: **${formatBRL(simulatedImpact)}**`
+      : installments && kind === "expense"
+      ? `Valor total: **${formatBRL(amount)}** em **${installments}x** de **${formatBRL(simulatedImpact)}**`
+      : `Valor simulado: **${formatBRL(amount)}**`;
+  const balanceVerdict =
+    projectedBalance >= 0
+      ? `Resultado estimado ${target.label}: **${formatBRL(projectedBalance)}**.`
+      : `Resultado estimado ${target.label}: **${formatBRL(projectedBalance)}**, ficando abaixo de zero.`;
+
+  if (!s.spendingLimit) {
+    const recommendation =
+      projectedBalance < 0
+        ? "Eu não recomendaria esse cenário agora, porque ele deixaria seu saldo negativo."
+        : kind === "income" ||
+            kind === "removeExpense" ||
+            (kind === "incomeChange" && signedImpact >= 0)
+          ? "Esse cenário melhora sua margem disponível."
+          : kind === "incomeChange"
+            ? "Esse cenário reduz sua margem disponível em relação à renda atual."
+          : "Pelo saldo disponível, esse cenário cabe no momento.";
+
+    return `Simulei esse cenário sem registrar nada no histórico.\n\nTipo: **${actionLabel}**\n${amountLine}\nBase usada: **${formatBRL(target.baseBalance)}** ${target.label}\n${balanceVerdict}\n\n${recommendation}\n\nVocê ainda não definiu um limite de gastos. Com um limite cadastrado em **Ajustes**, eu também consigo avaliar o impacto no orçamento do período.`;
+  }
+
+  const affectsLimit = kind === "expense" || kind === "reserve";
+  const projectedSpent = affectsLimit ? s.spent + simulatedImpact : s.spent;
   const projectedLimitRemaining = s.spendingLimit - projectedSpent;
   const projectedLimitPercent = Math.round((projectedSpent / s.spendingLimit) * 100);
   const limitVerdict =
-    projectedLimitRemaining < 0
-      ? `Ela ultrapassaria seu limite de gastos em **${formatBRL(Math.abs(projectedLimitRemaining))}**.`
-      : projectedLimitPercent >= 90
-        ? `Ela ainda cabe no limite, mas deixaria você perto do teto: **${projectedLimitPercent}%** usado.`
-        : `Ela cabe no seu limite. Depois da compra, ainda restariam **${formatBRL(projectedLimitRemaining)}** dentro do teto.`;
+    !affectsLimit
+      ? "Esse cenário não aumenta seus gastos do período, então não pressiona o limite de gastos."
+      : projectedLimitRemaining < 0
+        ? `Ela ultrapassaria seu limite de gastos em **${formatBRL(Math.abs(projectedLimitRemaining))}**.`
+        : projectedLimitPercent >= 90
+          ? `Ela ainda cabe no limite, mas deixaria você perto do teto: **${projectedLimitPercent}%** usado.`
+          : `Ela cabe no seu limite. Depois da compra, ainda restariam **${formatBRL(projectedLimitRemaining)}** dentro do teto.`;
 
   const recommendation =
-    after < 0
-      ? "Eu evitaria essa compra agora, porque ela deixaria seu saldo negativo."
+    projectedBalance < 0
+      ? "Eu evitaria esse cenário agora, porque ele deixaria seu saldo negativo."
       : projectedLimitRemaining < 0
         ? "Eu teria cautela: seu saldo ainda pode comportar, mas o limite do período seria ultrapassado."
         : projectedLimitPercent >= 90
           ? "Dá para fazer, mas vale pensar com calma porque ela deixaria pouca margem no orçamento."
           : "A simulação parece confortável dentro do saldo e do limite atual.";
 
-  return `Simulei esse gasto sem registrar nada no histórico.\n\nValor da compra: **${formatBRL(amount)}**\nSaldo atual: **${formatBRL(s.balance)}**\n${balanceVerdict}\n\nLimite do período: **${formatBRL(s.spendingLimit)}**\nGasto atual no período: **${formatBRL(s.spent)}**\nGasto projetado: **${formatBRL(projectedSpent)}** (${projectedLimitPercent}% do limite)\n\n${limitVerdict}\n\n${recommendation}`;
+  return `Simulei esse cenário sem registrar nada no histórico.\n\nTipo: **${actionLabel}**\n${amountLine}\nBase usada: **${formatBRL(target.baseBalance)}** ${target.label}\n${balanceVerdict}\n\nLimite do período: **${formatBRL(s.spendingLimit)}**\nGasto atual no período: **${formatBRL(s.spent)}**\nGasto projetado: **${formatBRL(projectedSpent)}** (${projectedLimitPercent}% do limite)\n\n${limitVerdict}\n\n${recommendation}`;
 }
 
 function listRecent() {
@@ -3269,7 +3378,7 @@ export function answerLocally(
   }
 
   if (isImpactSimulationRequest(normalized)) {
-    const simulation = simulateSpend(text, month);
+    const simulation = simulateSpend(text, month, { explainMissingAmount: true });
     if (simulation) return { text: simulation };
   }
 
