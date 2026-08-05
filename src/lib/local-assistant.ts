@@ -2969,6 +2969,98 @@ function isSpendingQuery(text: string) {
   );
 }
 
+function isPlannedExpenseMonthQuery(text: string) {
+  const normalized = normalize(text);
+  if (!parseTargetMonth(text)) return false;
+
+  const asksForRealizedSpending =
+    /\b(gastei|ja gastei|já gastei|gasto realizado|gastos realizados)\b/.test(normalized);
+  if (asksForRealizedSpending) return false;
+
+  const hasExpenseSubject =
+    /\b(despesa|despesas|divida|dividas|conta|contas|pagamento|pagamentos|lancamento|lancamentos|lançamento|lançamentos)\b/.test(
+      normalized,
+    );
+  const hasPlanningCue =
+    /\b(tenho|terei|vou ter|pra|para|pro|programad|previst|pagar|vencer|vencem|vencimento)\b/.test(
+      normalized,
+    );
+  const hasQuestionCue =
+    /\b(quanto|qual|quais|quantos|quantas|valor|total|listar|lista|mostrar|mostra)\b/.test(
+      normalized,
+    );
+
+  return hasExpenseSubject && hasPlanningCue && hasQuestionCue;
+}
+
+function answerPlannedExpenseMonthQuery(text: string) {
+  if (!isPlannedExpenseMonthQuery(text)) return null;
+
+  const target = parseTargetMonth(text);
+  if (!target) return null;
+
+  if (target.status === "ambiguous-past") {
+    return `Você está se referindo a **${target.label}**? Se sim, me confirme para eu consultar as despesas previstas dessa competência.`;
+  }
+
+  if (target.status === "past-explicit") {
+    return `Essa competência já passou. Para meses anteriores, posso consultar os gastos realizados no histórico financeiro. Para despesas previstas, use a competência atual ou meses futuros.`;
+  }
+
+  const state = getFinanceState();
+  const today = localISODate();
+  const fixedExpenses = fixedExpenseOccurrencesForMonth(
+    state.fixedExpenses,
+    target.month,
+    state.deletedFixedExpenseOccurrences,
+    state.fixedExpenseOccurrenceOverrides,
+  );
+  const futureExpenses = state.expenses
+    .filter(
+      (expense) =>
+        !expense.balanceAdjustment &&
+        !expense.goalContribution &&
+        monthKey(expense.date) === target.month &&
+        expense.date > today,
+    )
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const fixedTotal = fixedExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const futureTotal = futureExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const total = fixedTotal + futureTotal;
+  const count = fixedExpenses.length + futureExpenses.length;
+  const wantsCount = /\b(quantos|quantas|qtd|quantidade)\b/.test(normalize(text));
+
+  if (count === 0) {
+    return `Não encontrei despesas fixas nem lançamentos futuros programados para **${target.label}**.`;
+  }
+
+  const fixedLines = fixedExpenses
+    .slice(0, 6)
+    .map(
+      (expense) =>
+        `- ${expense.description}: **${formatBRL(expense.amount)}** em ${paymentDateLabel(expense.date)} (Despesa fixa)`,
+    );
+  const futureLines = futureExpenses
+    .slice(0, 6)
+    .map(
+      (expense) =>
+        `- ${expense.description}: **${formatBRL(expense.amount)}** em ${paymentDateLabel(expense.date)} (Lançamento futuro)`,
+    );
+  const hiddenCount = Math.max(0, count - fixedLines.length - futureLines.length);
+  const detailLines = [...fixedLines, ...futureLines];
+  const detail =
+    detailLines.length > 0
+      ? `\n\n${detailLines.join("\n")}${hiddenCount ? `\n- Mais ${hiddenCount} lançamento${hiddenCount === 1 ? "" : "s"} previsto${hiddenCount === 1 ? "" : "s"}.` : ""}`
+      : "";
+
+  const intro = wantsCount
+    ? `Para **${target.label}**, encontrei **${count} lançamento${count === 1 ? "" : "s"} previsto${count === 1 ? "" : "s"}**.`
+    : `Para **${target.label}**, você tem **${formatBRL(total)}** em despesas previstas.`;
+
+  return `${intro}\n\nDespesas fixas: **${formatBRL(fixedTotal)}**. Lançamentos futuros: **${formatBRL(futureTotal)}**. Total previsto: **${formatBRL(total)}**.${detail}\n\nEsses valores representam compromissos programados para essa competência. Eles ainda não são gastos realizados, mas entram nas projeções do HeyFin.`;
+}
+
 function spendingPeriodFromText(text: string): {
   start: string;
   end: string;
@@ -3380,6 +3472,11 @@ export function answerLocally(
   if (isImpactSimulationRequest(normalized)) {
     const simulation = simulateSpend(text, month, { explainMissingAmount: true });
     if (simulation) return { text: simulation };
+  }
+
+  const plannedExpenseMonthQuery = answerPlannedExpenseMonthQuery(text);
+  if (plannedExpenseMonthQuery) {
+    return { text: plannedExpenseMonthQuery };
   }
 
   const spendingQuery = answerSpendingQuery(text);
