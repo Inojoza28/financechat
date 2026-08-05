@@ -93,6 +93,41 @@ const EXPENSE_WORDS = [
 
 const BASE_INCOME_WORDS = ["renda", "salario", "recebo"];
 
+const INCOME_REGISTRATION_WORDS = [
+  "cadastrar",
+  "cadastra",
+  "cadastre",
+  "cadastro",
+  "casdastrar",
+  "casdastra",
+  "casdastre",
+  "cadrastar",
+  "cadastrr",
+  "registrar",
+  "registre",
+  "registra",
+  "definir",
+  "defina",
+  "configurar",
+  "configure",
+  "informar",
+  "informe",
+  "colocar",
+  "coloque",
+];
+
+const INCOME_RECURRENCE_HINTS = [
+  "todo mes",
+  "por mes",
+  "mensal",
+  "mensalmente",
+  "semana",
+  "semanal",
+  "quinzena",
+  "quinzenal",
+  "15 dias",
+];
+
 const EXTRA_REVENUE_WORDS = [
   "ganhei",
   "ganho extra",
@@ -1283,6 +1318,24 @@ function incomePeriod(text: string): IncomePeriod {
   if (normalized.includes("semana")) return "weekly";
   if (normalized.includes("quinzena") || normalized.includes("15 dias")) return "biweekly";
   return "monthly";
+}
+
+function isIncomeRegistrationIntent(text: string) {
+  const normalized = normalize(text);
+  const hasIncomeReference =
+    includesAny(normalized, BASE_INCOME_WORDS) ||
+    /\b(remuneracao|remuneracao mensal|pagamento mensal|ganho mensal)\b/.test(normalized);
+  if (!hasIncomeReference) return false;
+
+  const hasAmount = parseMoneyValues(text).length > 0;
+  const hasRegistrationAction = includesAny(normalized, INCOME_REGISTRATION_WORDS);
+  const hasRecurringHint =
+    includesAny(normalized, INCOME_RECURRENCE_HINTS) ||
+    /\bdia\s+0?[1-9]\b|\bdia\s+[12]\d\b|\bdia\s+3[01]\b/.test(normalized);
+  const hasPersonalIncomePhrase =
+    /\b(minha renda|meu salario|meu pagamento|eu recebo|recebo)\b/.test(normalized);
+
+  return hasRegistrationAction || (hasAmount && (hasRecurringHint || hasPersonalIncomePhrase));
 }
 
 function registerIncome(text: string) {
@@ -3075,6 +3128,10 @@ export function answerLocally(
     return { text: answerSpendingPace(month) };
   }
 
+  if (isIncomeRegistrationIntent(text)) {
+    return { text: registerIncome(text) };
+  }
+
   if (includesAny(normalized, FIXED_EXPENSE_WORDS)) {
     if (isFixedExpenseListRequest(normalized)) {
       return { text: listFixedExpenses(month) };
@@ -3178,10 +3235,6 @@ export function answerLocally(
     if (multipleRevenues) return { text: multipleRevenues };
 
     return { text: registerRevenue(text, amount, month) };
-  }
-
-  if (includesAny(normalized, BASE_INCOME_WORDS)) {
-    return { text: registerIncome(text) };
   }
 
   if (
