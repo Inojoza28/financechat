@@ -73,8 +73,28 @@ const FALLBACK_RESPONSE =
   "Desculpe, não consegui entender ou responder essa solicitação. Posso ajudar você a registrar receitas e despesas, consultar seu saldo, fazer projeções financeiras, mostrar seus gastos e responder dúvidas relacionadas ao seu controle financeiro. Tente reformular a pergunta com um valor, período ou objetivo financeiro.";
 
 const SMART_SUGGESTIONS_SEEN_KEY = "heyfin.smart-suggestions.seen.v1";
+const LAST_INTERACTION_KEY = "heyfin.last-interaction.v1";
 const RECENT_SPENDING_WINDOW_MS = 4 * 60 * 60 * 1000;
 const SMART_SUGGESTION_IDLE_MS = 8 * 60 * 1000;
+
+function readLastInteraction() {
+  if (typeof window === "undefined") return Date.now();
+  try {
+    const parsed = Number(window.localStorage.getItem(LAST_INTERACTION_KEY));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : Date.now();
+  } catch {
+    return Date.now();
+  }
+}
+
+function writeLastInteraction(value: number) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(LAST_INTERACTION_KEY, String(value));
+  } catch {
+    /* storage unavailable */
+  }
+}
 
 type SpeechRecognitionResult = ArrayLike<{ transcript: string }> & {
   isFinal?: boolean;
@@ -209,7 +229,7 @@ export function ChatWindow() {
   const voiceFinalTranscriptRef = useRef("");
   const voiceReceivedTranscriptRef = useRef(false);
   const voiceSessionIdRef = useRef(0);
-  const lastUserInteractionAtRef = useRef(Date.now());
+  const lastUserInteractionAtRef = useRef<number>(readLastInteraction());
   const [input, setInput] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(() => currentMonthKey());
   const [status, setStatus] = useState<"ready" | "submitted">("ready");
@@ -238,10 +258,30 @@ export function ChatWindow() {
     };
   }, []);
 
+  useEffect(() => {
+    const persistOnLeave = () => {
+      writeLastInteraction(lastUserInteractionAtRef.current);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        persistOnLeave();
+      }
+    };
+    window.addEventListener("beforeunload", persistOnLeave);
+    window.addEventListener("pagehide", persistOnLeave);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("beforeunload", persistOnLeave);
+      window.removeEventListener("pagehide", persistOnLeave);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
   const busy = status === "submitted";
   const summary = summarize(state, selectedMonth);
   const markUserInteraction = () => {
     lastUserInteractionAtRef.current = Date.now();
+    writeLastInteraction(lastUserInteractionAtRef.current);
   };
   const summaryLimitPercent =
     summary.spendingLimit && summary.spendingLimit > 0
